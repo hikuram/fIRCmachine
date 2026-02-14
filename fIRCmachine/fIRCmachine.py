@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import argparse
 from datetime import datetime
 from time import perf_counter as timepfc
 
@@ -164,9 +165,9 @@ def iter_lmax():
         # == Other jobs ===================
         if g.OTHER_JOBS_EXAMPLE_ON:
             from ase.geometry import get_distances
-            _, d_Ir = get_distances(atoms.positions, atoms.positions[0])
-            print(d_Ir[1][0])
-            write_result('d_Ir_betaH [angs]', d_Ir[1][0])
+            _, iadist = get_distances(atoms.positions, atoms.positions[0])
+            print(iadist[1][0])
+            write_result('distance(1, 0) [angs]', iadist[1][0])
             
 #            from morfeus import SASA
 #            sasa = SASA(atoms.symbols, atoms.positions, probe_radius=1.4)
@@ -210,11 +211,11 @@ def myCalculator(type, atoms, base_name):
     #pyscf
     if type == "pyscf":
         # pyscf config
-        mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-mTZVP",
-            ecp="def2-TZVP", charge=g.charge, spin=g.mult-1,
+        mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-SVP",
+            ecp="def2-SVP", charge=g.charge, spin=g.mult-1,
             output=base_name+'_pyscf.log', verbose=4
         )
-        mf = mol.RKS(xc="b973c", disp="d3bj", conv_tol=6e-10, max_cycle=400)
+        mf = mol.RKS(xc="b3lyp", disp="d3bj", conv_tol=6e-10, max_cycle=400)
         mf = mf.SMD()
         mf.with_solvent.solvent = "water"
         #mf.with_solvent.eps = 78.3553  # water
@@ -231,7 +232,7 @@ def myCalculator(type, atoms, base_name):
         config = {}
         config["xc"] = "r2scan3c"
         config["with_solvent"] = True
-        config["solvent"] = {"method": "COSMO", "eps": 78.3553, "solvent": "water"}
+        config["solvent"] = {"method": "SMD", "eps": 78.3553, "solvent": "water"}
         config["charge"] = g.charge
         config["spin"] = g.mult - 1
         input_atoms_list = [(ele, coord) for ele, coord in zip(atoms.get_chemical_symbols(), atoms.get_positions())]
@@ -242,8 +243,7 @@ def myCalculator(type, atoms, base_name):
             xc_3c = config["xc"]
             mf = build_3c_method(config)
         else:
-            xc_3c = None
-            mf = build_method(config)
+            raise NotImplementedError("When 'pyscf_3c' is specified, the xc string must end with '3c'.")
         calculator = PySCFCalculator(mf, xc_3c=xc_3c)
         
     #pyscf_fine
@@ -256,8 +256,9 @@ def myCalculator(type, atoms, base_name):
         mf = mol.RKS(xc="wb97m-v", conv_tol=6e-10, max_cycle=400)
         mf.grids.level = 5
         mf.nlcgrids.level = 4
-        #if g.device == "cuda":
-        #    mf = mf.to_gpu()
+        if g.device == "cuda":
+            cupy.get_default_memory_pool().free_all_blocks()
+            mf = mf.to_gpu()
         calculator = PySCF(method=mf)
         
     #orbmol
@@ -267,31 +268,10 @@ def myCalculator(type, atoms, base_name):
             precision="float64",   # "float32"/ "float32-highest"/ "float64"
         )
         calculator = ORBCalculator(orbff, device=g.device)
-        
-    #orbmol+alpb
-    elif type == "orbmol+alpb":
-        orbff = pretrained.orb_v3_conservative_omol(
-            device=g.device,
-            precision="float64",   # "float32"/ "float32-highest"/ "float64"
-        )
-        solvation = ("alpb","water")
-        acc = 0.1
-        calc_mlip =  ORBCalculator(orbff, device=g.device)
-        calc_xtb_sol = TBLite(method="GFN2-xTB", charge=g.charge, multiplicity=g.mult, solvation=solvation, accuracy=acc, verbosity=0, mixer_damping=0.1)
-        calc_xtb_vac = TBLite(method="GFN2-xTB", charge=g.charge, multiplicity=g.mult, accuracy=acc, verbosity=0, mixer_damping=0.1)
-        calculator = LinearCombinationCalculator([calc_mlip, calc_xtb_sol, calc_xtb_vac], [1, 1, -1])
-        
+    
     else:
         sys.exit("error: incorrect calc type")
     return calculator
-
-        
-    #orbmol+alpb
-    calc_mlip =  ORBCalculator(orbff, device=device)
-    calc_xtb_sol = TBLite(method="GFN2-xTB", charge=charge, multiplicity=mult, solvation=solvation, accuracy=acc, verbosity=0, mixer_damping=0.1)
-    calc_xtb_vac = TBLite(method="GFN2-xTB", charge=charge, multiplicity=mult, accuracy=acc, verbosity=0, mixer_damping=0.1)
-    calculator = LinearCombinationCalculator([calc_mlip, calc_xtb_sol, calc_xtb_vac], [1, 1, -1])
-    
 
 # parse input traj
 from typing import List
