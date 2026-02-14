@@ -36,7 +36,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--directory", type=str, required=True, help="path to the destination folder")
     parser.add_argument("-c", "--charge", type=int, required=True, help="system total charge")
     parser.add_argument("-m", "--method", type=str, required=False, help="calculation method of the PES")
-    if g.init_path_search_on:
+    if g.INIT_PATH_SEARCH_ON:
         parser.add_argument("-r", "--reactant", type=str, required=True, help="inputfile for the reactant .xyz file")
         parser.add_argument("-p", "--product", type=str, required=True, help="inputfile for the product .xyz file")
     else:
@@ -45,7 +45,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     t_total_start = timepfc()
-    if g.init_path_search_on:
+    if g.INIT_PATH_SEARCH_ON:
         if not os.path.exists(args.directory):
             os.mkdir(args.directory)
         else:
@@ -64,29 +64,29 @@ if __name__ == '__main__':
         input_name = os.path.basename(args.input)
         if not os.path.exists(args.directory+"/"+input_name):
             shutil.copy(args.input, args.directory)
-        g.i_traj = input_name
+        g.I_TRAJ = input_name
     os.chdir(args.directory)
-    g.current_dir = args.directory
-    g.charge = args.charge
+    g.CURRENT_DIR = args.directory
+    g.CHARGE = args.charge
     if args.method:
-        g.calc_type = args.method
-    g.r_csv = args.result
-    if os.path.exists(g.r_csv):
-        print(f"info: {g.r_csv} will be overwritten")
+        g.CALC_TYPE = args.method
+    g.R_CSV = args.result
+    if os.path.exists(g.R_CSV):
+        print(f"info: {g.R_CSV} will be overwritten")
     else:
-        print(f"info: {g.r_csv} will be made")
-        write_energies(g.i_traj, g.r_csv)
+        print(f"info: {g.R_CSV} will be made")
+        write_energies(g.I_TRAJ, g.R_CSV)
     
     # main
-    if g.init_path_search_on:
+    if g.INIT_PATH_SEARCH_ON:
         init_path_search()
-        g.i_traj = "DMF_final.traj" #ignores args.input
+        g.I_TRAJ = "DMF_final.traj" #ignores args.input
     iter_lmax()
     
     # finish
     finishing()
     t_total = timepfc() - t_total_start
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
-    write_line(g.time_log_name, txt)
+    write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
 

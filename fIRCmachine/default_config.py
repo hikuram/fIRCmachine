@@ -1,4 +1,3 @@
-sella_internal = True
 
 # Workflow flags
 INIT_PATH_SEARCH_ON: bool = True

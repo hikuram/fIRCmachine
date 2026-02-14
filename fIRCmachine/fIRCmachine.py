@@ -29,14 +29,14 @@ from sella import Sella, Constraints, IRC
 # overwrite global variables
 # ...Example settings are described in README or default_config.py...
 #
-##g.charge = 0
-#g.mult = 1
-#g.nmove = 40
-#g.update_teval = False
-#g.DMF_convergence = "tight"
+##g.CHARGE = 0
+#g.MULT = 1
+#g.NMOVE = 40
+#g.UPDATE_TEVAL = False
+#g.DMF_CONVERGENCE = "tight"
 #
-#g.sella_internal = True
-#g.irc_dx = 0.08
+#g.SELLA_INTERNAL = True
+#g.IRC_DX = 0.08
 #
 #g.EV_TO_KCAL_MOL = 23.0605
 #g.EV_TO_HARTREE = 1 / 27.2114  # ≒ 0.0367493
@@ -51,8 +51,8 @@ def init_path_search():
     
     # == Refine input geometries ===================
     t_opt_start = timepfc()
-    if g.refine_input_on:
-        if g.use_sella_in_opt:
+    if g.REFINE_INPUT_ON:
+        if g.USE_SELLA_IN_OPT:
             reactant = opt_sella_img("reactant.xyz")
             product = opt_sella_img("product.xyz")
         else:
@@ -60,7 +60,7 @@ def init_path_search():
             product = opt_img("product.xyz")
     t_opt = timepfc() - t_opt_start
     txt = f"* Optimize_Total        | {t_opt:>12.2f} s  *\n"
-    write_line(g.time_log_name, txt)
+    write_line(g.TIME_LOG_NAME, txt)
     
     # == Run DMF ===================
     
@@ -68,14 +68,14 @@ def init_path_search():
     mepopt_dmf(reactant, product)
     t_dmf = timepfc() - t_dmf_start
     txt = f"* FB-ENM/DMF_Total      | {t_dmf:>12.2f} s  *\n"
-    write_line(g.time_log_name, txt)
+    write_line(g.TIME_LOG_NAME, txt)
 
 # following iterations for all lmax
 def iter_lmax():
-    df_new = pd.read_csv(g.r_csv)
+    df_new = pd.read_csv(g.R_CSV)
     # detect & save local maxima
     peak_files = []
-    peak_files = extract_peaks_from_traj(g.i_traj, "lmax.xyz", prominence=0.01)
+    peak_files = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
     
     # write csv (accepts a pair of elements or lists)
     def write_result(column_name, value):
@@ -85,9 +85,9 @@ def iter_lmax():
         for i, cn in enumerate(column_name):
             df_new.at[df_new.index[idx], column_name[i]] = value[i]
         try:
-            df_new.to_csv(g.r_csv, index=False)
+            df_new.to_csv(g.R_CSV, index=False)
         except Exception as e:
-            print(f"Warning: An error occurred while writing {g.r_csv}: {e}")
+            print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
     
     # sub iter 1: ignores endpoints
     irc_trajs_str = ""
@@ -100,11 +100,11 @@ def iter_lmax():
         base_name = os.path.splitext(peak_file)[0]
         idx = int(base_name.split('_')[-1].split('.')[0]) #index of lmax
         atoms = read(peak_file)
-        atoms.info["charge"] = g.charge
-        atoms.info["spin"] = g.mult
+        atoms.info["charge"] = g.CHARGE
+        atoms.info["spin"] = g.MULT
         
         # == do TSopt ===================
-        if g.tsopt_on:
+        if g.TSOPT_ON:
             t_tsopt_start = timepfc()
             try:
                 tsopt_img(base_name+".xyz")
@@ -115,7 +115,7 @@ def iter_lmax():
             print(f"tsopt {t_tsopt} sec")
         
         # == do IRC ===================
-        if g.irc_on:
+        if g.IRC_ON:
             t_irc_start = timepfc()
             try:
                 irc_result = irc_img(base_name+"_tsopt.xyz")
@@ -130,13 +130,13 @@ def iter_lmax():
             
             write_energies(base_name+"_tsopt_irc0/irc.traj")
             write_energies(base_name+"_tsopt_irc1/irc.traj")
-            irc_trajs_str += f" {g.current_dir}/{base_name}_tsopt_irc0/irc.traj"
+            irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc0/irc.traj"
         # ==
         
     t_tsopt_irc = timepfc() - t_tsopt_irc_start
     txt = f"* TSopt/IRC_Total       | {t_tsopt_irc:>12.2f} s  *\n"
-    write_line(g.time_log_name, txt)
-    g.suggestions.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.current_dir}/irc_cat/irc_cat.traj")
+    write_line(g.TIME_LOG_NAME, txt)
+    g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
     
     # sub iter 2: includes endpoints
     t_vib_sum_start = timepfc()
@@ -144,11 +144,11 @@ def iter_lmax():
         base_name = os.path.splitext(peak_file)[0]
         idx = int(base_name.split('_')[-1].split('.')[0]) #index of lmax
         atoms = read(peak_file)
-        atoms.info["charge"] = g.charge
-        atoms.info["spin"] = g.mult
+        atoms.info["charge"] = g.CHARGE
+        atoms.info["spin"] = g.MULT
         
         # == Vibrations and IdealGasThermo ===================
-        if g.vib_on:
+        if g.VIB_ON:
             t_vib_start = timepfc()
             try:
                 vib_result = vib_img(base_name+".xyz")
@@ -162,7 +162,7 @@ def iter_lmax():
             print(f"vibrations {t_vib} sec")
         
         # == Other jobs ===================
-        if g.other_jobs_example_on:
+        if g.OTHER_JOBS_EXAMPLE_ON:
             from ase.geometry import get_distances
             _, d_Ir = get_distances(atoms.positions, atoms.positions[0])
             print(d_Ir[1][0])
@@ -405,8 +405,8 @@ def write_line(txtfile_name, txt):
 def opt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.charge, "spin": g.mult}
-    img.calc = myCalculator(g.calc_type, img, img_name)
+    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
     # Set up a ASE optimizer object with L-BFGS
     opt = LBFGS(img, trajectory=img_name+"_opt.traj", logfile=img_name+"_opt.log")
     opt.run(fmax=0.01, steps=10000)
@@ -414,7 +414,7 @@ def opt_img(xyz_name: str) -> Atoms:
     images = read(img_name+"_opt.traj", index=':')
     traj_to_xyz(images, img_name+"_opt.traj.xyz")
     
-    g.suggestions.append(f"ase gui {g.current_dir}/{img_name}_opt.traj")
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_opt.traj")
     return img
 
 
@@ -422,11 +422,11 @@ def opt_img(xyz_name: str) -> Atoms:
 def opt_sella_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.charge, "spin": g.mult}
-    img.calc = myCalculator(g.calc_type, img, img_name)
+    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella Dynamics object with "order=0"
     dyn = Sella(
-        img, internal=g.sella_internal, order=0, constraints=None,
+        img, internal=g.SELLA_INTERNAL, order=0, constraints=None,
         trajectory=img_name+'_opt.traj', logfile=img_name+"_opt.log"
     )
     dyn.run(fmax=4e-4, steps=1000)
@@ -434,7 +434,7 @@ def opt_sella_img(xyz_name: str) -> Atoms:
     images = read(img_name+"_opt.traj", index=':')
     traj_to_xyz(images, img_name+"_opt.traj.xyz")
     
-    g.suggestions.append(f"ase gui {g.current_dir}/{img_name}_opt.traj")
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_opt.traj")
     return img
 
 
@@ -442,11 +442,11 @@ def opt_sella_img(xyz_name: str) -> Atoms:
 def tsopt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.charge, "spin": g.mult}
-    img.calc = myCalculator(g.calc_type, img, img_name)
+    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella Dynamics object
     dyn = Sella(
-        img, internal=g.sella_internal, order=1, constraints=None,
+        img, internal=g.SELLA_INTERNAL, order=1, constraints=None,
         trajectory=img_name+'_tsopt.traj', logfile=img_name+"_tsopt.log"
     )
     dyn.run(fmax=4e-4, steps=1000)
@@ -454,7 +454,7 @@ def tsopt_img(xyz_name: str) -> Atoms:
     images = read(img_name+"_tsopt.traj", index=':')
     traj_to_xyz(images, img_name+"_tsopt.traj.xyz")
     
-    g.suggestions.append(f"ase gui {g.current_dir}/{img_name}_tsopt.traj")
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_tsopt.traj")
     return img
 
 
@@ -462,12 +462,12 @@ def tsopt_img(xyz_name: str) -> Atoms:
 def irc_img(xyz_name: str) -> List[float]:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.charge, "spin": g.mult}
-    img.calc = myCalculator(g.calc_type, img, img_name)
+    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella IRC object
     opt = IRC(img, trajectory=img_name+'_irc.traj',
         logfile=img_name+"_irc.log",
-        dx=g.irc_dx, eta=1e-4, gamma=0.4
+        dx=g.IRC_DX, eta=1e-4, gamma=0.4
     )
     opt.run(fmax=1e-2, steps=1000, direction='forward')
     write(img_name+"_forward.xyz", img)
@@ -497,10 +497,10 @@ def irc_img(xyz_name: str) -> List[float]:
     deltaE_irc0 = g.EV_TO_KCAL_MOL * (max(rearr_energies) - rearr_energies[-1])
     deltaE_irc1 = g.EV_TO_KCAL_MOL * (max(rearr_energies) - rearr_energies[0])
     
-    g.suggestions.append(f"ase gui {g.current_dir}/{img_name}_irc0/irc.traj")
-    g.suggestions.append(f"ase gui {g.current_dir}/{img_name}_irc1/irc.traj")
-    g.suggestions.append(f"python3 sVIBmachine.py -d {g.current_dir}/{img_name}_irc0 -c {g.charge} -i {g.current_dir}/{img_name}_irc0/irc.traj")
-    g.suggestions.append(f"python3 sVIBmachine.py -d {g.current_dir}/{img_name}_irc1 -c {g.charge} -i {g.current_dir}/{img_name}_irc1/irc.traj")
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_irc0/irc.traj")
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_irc1/irc.traj")
+    g.SUGGESTIONS.append(f"python3 sVIBmachine.py -d {g.CURRENT_DIR}/{img_name}_irc0 -c {g.CHARGE} -i {g.CURRENT_DIR}/{img_name}_irc0/irc.traj")
+    g.SUGGESTIONS.append(f"python3 sVIBmachine.py -d {g.CURRENT_DIR}/{img_name}_irc1 -c {g.CHARGE} -i {g.CURRENT_DIR}/{img_name}_irc1/irc.traj")
     
     return [deltaE_irc0, deltaE_irc1]
 
@@ -638,24 +638,24 @@ def write_energies(traj_name, csv_name=None):
 # finishing work
 def finishing():
     # write relative * energy (kcal/mol)
-    if g.vib_on:
+    if g.VIB_ON:
         try:
-            df = pd.read_csv(g.r_csv)
+            df = pd.read_csv(g.R_CSV)
             if df["E_0K [kcal/mol]"].notna().any():
                 df["Delta E_0K vs. reactant [kcal/mol]"] = df["E_0K [kcal/mol]"] - df.loc[0, "E_0K [kcal/mol]"]
             if df["H [kcal/mol]"].notna().any():
                 df["Delta H vs. reactant [kcal/mol]"] = df["H [kcal/mol]"] - df.loc[0, "H [kcal/mol]"]
             if df["G [kcal/mol]"].notna().any():
                 df["Delta G vs. reactant [kcal/mol]"] = df["G [kcal/mol]"] - df.loc[0, "G [kcal/mol]"]
-            df.to_csv(g.r_csv, index=False)
+            df.to_csv(g.R_CSV, index=False)
         except Exception as e:
-            print(f"Warning: An error occurred while writing {g.r_csv}: {e}")
+            print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
     
     # suggest the next steps
-    if g.write_suggestions_on and len(g.suggestions)>0:
+    if g.WRITE_SUGGESTIONS_ON and len(g.SUGGESTIONS)>0:
         print("(suggestion) your next steps may be ...")
         with open("suggestions.txt", "a", encoding='utf-8') as f:
-            for elem in g.suggestions:
+            for elem in g.SUGGESTIONS:
                 print(elem)
                 f.write(f"{elem}\n")
 
@@ -664,7 +664,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--directory", type=str, required=True, help="path to the destination folder")
     parser.add_argument("-c", "--charge", type=int, required=True, help="system total charge")
     parser.add_argument("-m", "--method", type=str, required=False, help="calculation method of the PES")
-    if g.init_path_search_on:
+    if g.INIT_PATH_SEARCH_ON:
         parser.add_argument("-r", "--reactant", type=str, required=True, help="inputfile for the reactant .xyz file")
         parser.add_argument("-p", "--product", type=str, required=True, help="inputfile for the product .xyz file")
     else:
@@ -673,7 +673,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     t_total_start = timepfc()
-    if g.init_path_search_on:
+    if g.INIT_PATH_SEARCH_ON:
         if not os.path.exists(args.directory):
             os.mkdir(args.directory)
         else:
@@ -692,29 +692,29 @@ if __name__ == '__main__':
         input_name = os.path.basename(args.input)
         if not os.path.exists(args.directory+"/"+input_name):
             shutil.copy(args.input, args.directory)
-        g.i_traj = input_name
+        g.I_TRAJ = input_name
     os.chdir(args.directory)
-    g.current_dir = args.directory
-    g.charge = args.charge
+    g.CURRENT_DIR = args.directory
+    g.CHARGE = args.charge
     if args.method:
-        g.calc_type = args.method
-    g.r_csv = args.result
-    if os.path.exists(g.r_csv):
-        print(f"info: {g.r_csv} will be overwritten")
+        g.CALC_TYPE = args.method
+    g.R_CSV = args.result
+    if os.path.exists(g.R_CSV):
+        print(f"info: {g.R_CSV} will be overwritten")
     else:
-        print(f"info: {g.r_csv} will be made")
-        write_energies(g.i_traj, g.r_csv)
+        print(f"info: {g.R_CSV} will be made")
+        write_energies(g.I_TRAJ, g.R_CSV)
     
     # main
-    if g.init_path_search_on:
+    if g.INIT_PATH_SEARCH_ON:
         init_path_search()
-        g.i_traj = "DMF_final.traj" #ignores args.input
+        g.I_TRAJ = "DMF_final.traj" #ignores args.input
     iter_lmax()
     
     # finish
     finishing()
     t_total = timepfc() - t_total_start
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
-    write_line(g.time_log_name, txt)
+    write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
 
