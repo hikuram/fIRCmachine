@@ -212,7 +212,7 @@ def myCalculator(type, atoms, base_name):
     if type == "pyscf":
         # pyscf config
         mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-SVP",
-            ecp="def2-SVP", charge=g.charge, spin=g.mult-1,
+            ecp="def2-SVP", charge=g.CHARGE, spin=g.MULT-1,
             output=base_name+'_pyscf.log', verbose=4
         )
         mf = mol.RKS(xc="b3lyp", disp="d3bj", conv_tol=6e-10, max_cycle=400)
@@ -221,7 +221,7 @@ def myCalculator(type, atoms, base_name):
         #mf.with_solvent.eps = 78.3553  # water
         mf.grids.level = 5
         mf.nlcgrids.level = 4
-        if g.device == "cuda":
+        if g.DEVICE == "cuda":
             cupy.get_default_memory_pool().free_all_blocks()
             mf = mf.to_gpu()
         calculator = PySCF(method=mf)
@@ -233,8 +233,8 @@ def myCalculator(type, atoms, base_name):
         config["xc"] = "r2scan3c"
         config["with_solvent"] = True
         config["solvent"] = {"method": "SMD", "eps": 78.3553, "solvent": "water"}
-        config["charge"] = g.charge
-        config["spin"] = g.mult - 1
+        config["charge"] = g.CHARGE
+        config["spin"] = g.MULT - 1
         input_atoms_list = [(ele, coord) for ele, coord in zip(atoms.get_chemical_symbols(), atoms.get_positions())]
         config["inputfile"] = input_atoms_list
         config["verbose"] = 4
@@ -250,13 +250,13 @@ def myCalculator(type, atoms, base_name):
     elif type == "pyscf_fine":
         # pyscf config
         mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-TZVPD",
-            ecp="def2-TZVPD", charge=g.charge, spin=g.mult-1,
+            ecp="def2-TZVPD", charge=g.CHARGE, spin=g.MULT-1,
             output=base_name+'_pyscf.log', verbose=4
         )
         mf = mol.RKS(xc="wb97m-v", conv_tol=6e-10, max_cycle=400)
         mf.grids.level = 5
         mf.nlcgrids.level = 4
-        if g.device == "cuda":
+        if g.DEVICE == "cuda":
             cupy.get_default_memory_pool().free_all_blocks()
             mf = mf.to_gpu()
         calculator = PySCF(method=mf)
@@ -264,10 +264,10 @@ def myCalculator(type, atoms, base_name):
     #orbmol
     elif type == "orbmol":
         orbff = pretrained.orb_v3_conservative_omol(
-            device=g.device,
+            device=g.DEVICE,
             precision="float64",   # "float32"/ "float32-highest"/ "float64"
         )
-        calculator = ORBCalculator(orbff, device=g.device)
+        calculator = ORBCalculator(orbff, device=g.DEVICE)
     
     else:
         sys.exit("error: incorrect calc type")
@@ -337,7 +337,7 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     np.save('DMF_init_coefs', coefs)
     
     # Set up and solve Direct MaxFlux
-    mxflx = DirectMaxFlux(ref_images, coefs=coefs, nmove=g.nmove, update_teval=g.update_teval)
+    mxflx = DirectMaxFlux(ref_images, coefs=coefs, nmove=g.NMOVE, update_teval=g.UPDATE_TEVAL)
     # Set up calculator
     for img in mxflx.images:
         img.info = {"charge": g.charge, "spin": g.mult}
@@ -345,7 +345,7 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     # do solve
     mxflx.add_ipopt_options({'output_file': 'DMF_ipopt.out'})
     try:
-        mxflx.solve(tol=g.DMF_convergence)
+        mxflx.solve(tol=g.DMF_CONVERGENCE)
     except Exception as e:
         write("DMF_last_before_error.xyz", mxflx.images)
         write("DMF_last_before_error.traj", mxflx.images)
