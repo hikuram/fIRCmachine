@@ -1,18 +1,12 @@
 import os
 import sys
 import shutil
-import argparse
-import pandas as pd
-import numpy as np
-from time import perf_counter as timepfc
 from datetime import datetime
-from orb_models.forcefield import pretrained
-from orb_models.forcefield.calculator import ORBCalculator
-from pyscf import M
-from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-from gpu4pyscf.tools.ase_interface import PySCF
-from dmf import DirectMaxFlux, interpolate_fbenm
-from sella import Sella, Constraints, IRC
+from time import perf_counter as timepfc
+
+# Third-party
+import numpy as np
+import pandas as pd
 from ase import Atoms
 from ase.io import read, write
 from ase.io.trajectory import Trajectory
@@ -20,24 +14,20 @@ from ase.optimize import LBFGS
 from ase.vibrations import Vibrations
 from ase.thermochemistry import IdealGasThermo
 from scipy.signal import find_peaks
-import default_config as g
 import cupy
 
+# Project modules
+import default_config as g
+from orb_models.forcefield import pretrained
+from orb_models.forcefield.calculator import ORBCalculator
+from pyscf import M
+from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
+from gpu4pyscf.tools.ase_interface import PySCF
+from dmf import DirectMaxFlux, interpolate_fbenm
+from sella import Sella, Constraints, IRC
+
 # overwrite global variables
-#g.init_path_search_on = True
-#g.refine_input_on = True
-#g.use_sella_in_opt = False
-#g.tsopt_on = True
-#g.irc_on = True
-#g.vib_on = True
-#g.other_jobs_example_on = False
-#g.write_suggestions_on = True
-#g.suggestions = []
-#g.current_dir = "."
-#g.time_log_name = "timing.log"
-#
-#g.calc_type="orbmol" # orbmol or pyscf or pyscf_fine
-#g.device="cuda" # cuda or cpu
+# ...Example settings are described in README or default_config.py...
 #
 ##g.charge = 0
 #g.mult = 1
@@ -304,7 +294,9 @@ def myCalculator(type, atoms, base_name):
     
 
 # parse input traj
-def extract_peaks_from_traj(trajfile, maxima_filename, prominence=0.01):
+from typing import List
+
+def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: float = 0.01) -> List[str]:
     # Load all frames from trajectory
     traj = read(trajfile, index=':')
     energies = []
@@ -351,7 +343,7 @@ def extract_peaks_from_traj(trajfile, maxima_filename, prominence=0.01):
 
 
 # run MEPopt with FB-ENM/DMF
-def mepopt_dmf(reactant_atoms, product_atoms):
+def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     # Read reactant and product
     ref_images = [reactant_atoms, product_atoms]
     
@@ -410,7 +402,7 @@ def write_line(txtfile_name, txt):
         f.write(txt)
 
 # run Opt with ASE
-def opt_img(xyz_name):
+def opt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info = {"charge": g.charge, "spin": g.mult}
@@ -427,7 +419,7 @@ def opt_img(xyz_name):
 
 
 # run Opt with Sella
-def opt_sella_img(xyz_name):
+def opt_sella_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info = {"charge": g.charge, "spin": g.mult}
@@ -447,7 +439,7 @@ def opt_sella_img(xyz_name):
 
 
 # run TSopt with Sella
-def tsopt_img(xyz_name):
+def tsopt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info = {"charge": g.charge, "spin": g.mult}
@@ -467,7 +459,7 @@ def tsopt_img(xyz_name):
 
 
 # run IRC with Sella
-def irc_img(xyz_name):
+def irc_img(xyz_name: str) -> List[float]:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info = {"charge": g.charge, "spin": g.mult}

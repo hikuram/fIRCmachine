@@ -6,31 +6,27 @@ from time import perf_counter as timepfc
 from datetime import datetime
 from fIRCmachine import *
 
-# overwrite global variables
-g.init_path_search_on = False
-g.refine_input_on = False
-g.use_sella_in_opt = False
-g.tsopt_on = True
-g.irc_on = True
-g.vib_on = False
-g.other_jobs_example_on = False
-#g.write_suggestions_on = True
-#g.suggestions = []
-#g.current_dir = "."
-#g.time_log_name = "timing.log"
-#
-#g.calc_type="orbmol" # orbmol or pyscf or pyscf_fine
-#g.device="cuda" # cuda or cpu
-#
-##g.charge = 0
-#g.mult = 1
-#g.nmove = 40
-#g.update_teval = False
-#g.DMF_convergence = "tight"
-#
-#g.sella_internal = True
-#g.irc_dx = 0.08
-#
+
+# overwrite global variables (all uppercase)
+g.INIT_PATH_SEARCH_ON = False
+g.REFINE_INPUT_ON = False
+g.USE_SELLA_IN_OPT = False
+g.TSOPT_ON = True
+g.IRC_ON = True
+g.VIB_ON = False
+g.OTHER_JOBS_EXAMPLE_ON = False
+#g.WRITE_SUGGESTIONS_ON = True
+#g.SUGGESTIONS = []
+#g.CURRENT_DIR = "."
+#g.TIME_LOG_NAME = "timing.log"
+#g.CALC_TYPE = "orbmol" # orbmol or pyscf or pyscf_fine
+#g.DEVICE = "cuda" # cuda or cpu
+#g.MULT = 1
+#g.NMOVE = 40
+#g.UPDATE_TEVAL = False
+#g.DMF_CONVERGENCE = "tight"
+#g.SELLA_INTERNAL = True
+#g.IRC_DX = 0.08
 #g.EV_TO_KCAL_MOL = 23.0605
 #g.EV_TO_HARTREE = 1 / 27.2114  # ≒ 0.0367493
 
