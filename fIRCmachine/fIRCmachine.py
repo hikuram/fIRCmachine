@@ -340,8 +340,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     mxflx = DirectMaxFlux(ref_images, coefs=coefs, nmove=g.NMOVE, update_teval=g.UPDATE_TEVAL)
     # Set up calculator
     for img in mxflx.images:
-        img.info = {"charge": g.charge, "spin": g.mult}
-        img.calc = myCalculator(g.calc_type, img, "DMF_init")
+        img.info = {"charge": g.CHARGE, "spin": g.MULT}
+        img.calc = myCalculator(g.CALC_TYPE, img, "DMF_init")
     # do solve
     mxflx.add_ipopt_options({'output_file': 'DMF_ipopt.out'})
     try:
@@ -356,8 +356,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     for img in mxflx.images:
         # Copy atoms and info
         atoms = Atoms(positions=img.get_positions(), numbers=img.get_atomic_numbers())
-        atoms.info = {"charge": g.charge, "spin": g.mult}
-        atoms.calc = myCalculator(g.calc_type, atoms, "DMF_final")
+        atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
+        atoms.calc = myCalculator(g.CALC_TYPE, atoms, "DMF_final")
         try:
             # Explicitly calculate energy
             _ = atoms.get_potential_energy()
@@ -373,8 +373,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     write('DMF_final.traj', final_images)
     traj_to_xyz(final_images, 'DMF_final.xyz')
     # write result
-    write_energies('DMF_final.traj', g.r_csv)
-    g.suggestions.append(f"ase gui {g.current_dir}/DMF_final.traj")
+    write_energies('DMF_final.traj', g.R_CSV)
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/DMF_final.traj")
 
 # write txt
 def write_line(txtfile_name, txt):
@@ -531,9 +531,9 @@ def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
 def vib_img(xyz_name):
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info["charge"] = g.charge
-    img.info["spin"] = g.mult
-    img.calc = myCalculator(g.calc_type, img, img_name)
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
+    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
     #forces = img.get_forces()
     vib = Vibrations(img, name="vib_temp")
     vib.run()
@@ -543,7 +543,7 @@ def vib_img(xyz_name):
     for mode in range(0, 3):
         vib_filename = f"{img_name}_vib_{mode}.xyz"
         generate_vibration_xyz(img, vib, mode, output=vib_filename)
-    g.suggestions.append(f"ase gui {g.current_dir}/{img_name}_vib_*.xyz")
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
 
     # Ideal-gas limit
     # guess geometry='nonlinear', symmetrynumber=1
@@ -553,7 +553,7 @@ def vib_img(xyz_name):
     
     thermo = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=potentialenergy,
-        atoms=img, geometry='nonlinear', symmetrynumber=1, spin=(g.mult-1)/1,
+        atoms=img, geometry='nonlinear', symmetrynumber=1, spin=(g.MULT-1)/1,
         ignore_imag_modes=True
     )
     energy_eV = vib.atoms.get_potential_energy()
