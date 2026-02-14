@@ -203,7 +203,7 @@ def iter_lmax():
         
     t_vib_sum = timepfc() - t_vib_sum_start
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
-    write_line(g.time_log_name, txt)
+    write_line(g.TIME_LOG_NAME, txt)
 
 
 # set calculator
