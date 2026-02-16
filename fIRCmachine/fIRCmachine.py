@@ -28,25 +28,11 @@ from dmf import DirectMaxFlux, interpolate_fbenm
 from sella import Sella, Constraints, IRC
 
 # overwrite global variables
+#g.INIT_PATH_SEARCH_ON = False
 # ...Example settings are described in README or default_config.py...
-#
-##g.CHARGE = 0
-#g.MULT = 1
-#g.NMOVE = 40
-#g.UPDATE_TEVAL = False
-#g.DMF_CONVERGENCE = "tight"
-#
-#g.SELLA_INTERNAL = True
-#g.IRC_DX = 0.08
-#
-#g.EV_TO_KCAL_MOL = 23.0605
-#g.EV_TO_HARTREE = 1 / 27.2114  # ≒ 0.0367493
 
-# FB-ENM/DMF in first
+# FB-ENM/DMF optimization in first
 def init_path_search():
-    # Optimization of the reaction path by FB-ENM/DMF
-    # Start timer (total)
-    
     reactant = read("reactant.xyz")
     product = read("product.xyz")
     
@@ -643,13 +629,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run full IRC jobs starting with reactant.xyz and product.xyz')
     parser.add_argument("-d", "--directory", type=str, required=True, help="path to the destination folder")
     parser.add_argument("-c", "--charge", type=int, required=True, help="system total charge")
-    parser.add_argument("-m", "--method", type=str, required=False, help="calculation method of the PES")
+    parser.add_argument("-m", "--method", type=str, required=False, default="orbmol", help="calculation method of the PES")
     if g.INIT_PATH_SEARCH_ON:
         parser.add_argument("-r", "--reactant", type=str, required=True, help="inputfile for the reactant .xyz file")
         parser.add_argument("-p", "--product", type=str, required=True, help="inputfile for the product .xyz file")
     else:
-        parser.add_argument("-i", "--input", type=str, required=True, default="input.traj", help="input .traj file (ignored if the DMF path search is enabled)")
-    parser.add_argument("-rs", "--result", type=str, required=False, default="result.csv", help="resulting dataframe csv")
+        parser.add_argument("-i", "--input", type=str, required=True, default="input.traj", help="input .traj or .xyz file")
+    parser.add_argument("-rs", "--result", type=str, required=False, default="result.csv", help="resulting dataframe .csv file")
     args = parser.parse_args()
     
     t_total_start = timepfc()
@@ -676,19 +662,19 @@ if __name__ == '__main__':
     os.chdir(args.directory)
     g.CURRENT_DIR = args.directory
     g.CHARGE = args.charge
-    if args.method:
-        g.CALC_TYPE = args.method
+    g.CALC_TYPE = args.method
     g.R_CSV = args.result
     if os.path.exists(g.R_CSV):
         print(f"info: {g.R_CSV} will be overwritten")
     else:
         print(f"info: {g.R_CSV} will be made")
-        write_energies(g.I_TRAJ, g.R_CSV)
     
     # main
     if g.INIT_PATH_SEARCH_ON:
         init_path_search()
         g.I_TRAJ = "DMF_final.traj" #ignores args.input
+    else:
+        write_energies(g.I_TRAJ, g.R_CSV)
     iter_lmax()
     
     # finish

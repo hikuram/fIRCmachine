@@ -32,16 +32,15 @@ g.WRITE_SUGGESTIONS_ON = False
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run VIB calculations with the input trajectory')
     parser.add_argument("-d", "--directory", type=str, required=True, help="path to the destination folder")
     parser.add_argument("-c", "--charge", type=int, required=True, help="system total charge")
-    parser.add_argument("-m", "--method", type=str, required=False, help="calculation method of the PES")
+    parser.add_argument("-m", "--method", type=str, required=False, default="orbmol", help="calculation method of the PES")
     if g.INIT_PATH_SEARCH_ON:
         parser.add_argument("-r", "--reactant", type=str, required=True, help="inputfile for the reactant .xyz file")
         parser.add_argument("-p", "--product", type=str, required=True, help="inputfile for the product .xyz file")
     else:
-        parser.add_argument("-i", "--input", type=str, required=True, default="input.traj", help="input .traj file (ignored if the DMF path search is enabled)")
-    parser.add_argument("-rs", "--result", type=str, required=False, default="result.csv", help="resulting dataframe csv")
+        parser.add_argument("-i", "--input", type=str, required=True, default="input.traj", help="input .traj or .xyz file")
+    parser.add_argument("-rs", "--result", type=str, required=False, default="result.csv", help="resulting dataframe .csv file")
     args = parser.parse_args()
     
     t_total_start = timepfc()
@@ -68,19 +67,19 @@ if __name__ == '__main__':
     os.chdir(args.directory)
     g.CURRENT_DIR = args.directory
     g.CHARGE = args.charge
-    if args.method:
-        g.CALC_TYPE = args.method
+    g.CALC_TYPE = args.method
     g.R_CSV = args.result
     if os.path.exists(g.R_CSV):
         print(f"info: {g.R_CSV} will be overwritten")
     else:
         print(f"info: {g.R_CSV} will be made")
-        write_energies(g.I_TRAJ, g.R_CSV)
     
     # main
     if g.INIT_PATH_SEARCH_ON:
         init_path_search()
         g.I_TRAJ = "DMF_final.traj" #ignores args.input
+    else:
+        write_energies(g.I_TRAJ, g.R_CSV)
     iter_lmax()
     
     # finish
