@@ -2,7 +2,11 @@ import os
 import textwrap
 from typing import Optional
 import seaborn as sns
+import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
+
+# initialize mpl
+fm._rebuild()
 
 # add_underglow, taken from mplcyberpunk(https://github.com/dhaitz/mplcyberpunk)
 def add_underglow(ax: Optional[plt.Axes] = None, alpha_underglow: float = 0.1) -> None:
@@ -53,4 +57,5 @@ def instant_plot(dataframe, peak_idx):
         for x in peak_idx:
             y = dataframe[colname][x]
             axes[n, 1].text(x, y, '{:.8g}'.format(y), ha='center')
+
     plt.savefig("figure.png")
