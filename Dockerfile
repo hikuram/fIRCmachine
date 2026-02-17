@@ -56,6 +56,9 @@ RUN pip3 install pandas morfeus-ml ase rmsd sella orb-models cyipopt pydmf seabo
 RUN git clone --depth 1 https://github.com/hikuram/redox_benchmark.git
 RUN pip3 install --no-deps -e redox_benchmark
 
+RUN git clone --depth 1 https://github.com/hikuram/fIRCmachine.git　/opt/fIRCmachine
+ENV PYTHONPATH="/opt/fIRCmachine/fIRCmachine:${PYTHONPATH}"
+
 # Set working directory
 WORKDIR /workspace
 
