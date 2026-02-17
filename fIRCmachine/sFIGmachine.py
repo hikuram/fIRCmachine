@@ -13,12 +13,12 @@ g.REFINE_INPUT_ON = False
 g.USE_SELLA_IN_OPT = False
 g.TSOPT_ON = False
 g.IRC_ON = False
-g.VIB_ON = True
+g.VIB_ON = False
 g.OTHER_JOBS_EXAMPLE_ON = False
 g.WRITE_SUGGESTIONS_ON = False
 #g.SUGGESTIONS = []
-#g.SAVE_FIG_ON = True
-#g.PRESERVE_CSV_ON = False
+g.SAVE_FIG_ON = True
+g.PRESERVE_CSV_ON = True
 #g.CURRENT_DIR = "."
 #g.TIME_LOG_NAME = "timing.log"
 #g.CALC_TYPE = "orbmol" # orbmol or pyscf or pyscf_fine
@@ -34,7 +34,7 @@ g.WRITE_SUGGESTIONS_ON = False
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run VIB calculations with the input trajectory')
+    parser = argparse.ArgumentParser(description='Run IRC calculations with the input trajectory')
     parser.add_argument("-d", "--directory", type=str, required=True, help="path to the destination folder")
     parser.add_argument("-c", "--charge", type=int, required=True, help="system total charge")
     parser.add_argument("-m", "--method", type=str, required=False, default="orbmol", help="calculation method of the PES")

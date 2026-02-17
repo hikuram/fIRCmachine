@@ -17,6 +17,8 @@ g.VIB_ON = False
 g.OTHER_JOBS_EXAMPLE_ON = False
 #g.WRITE_SUGGESTIONS_ON = True
 #g.SUGGESTIONS = []
+#g.SAVE_FIG_ON = True
+#g.PRESERVE_CSV_ON = False
 #g.CURRENT_DIR = "."
 #g.TIME_LOG_NAME = "timing.log"
 #g.CALC_TYPE = "orbmol" # orbmol or pyscf or pyscf_fine
@@ -79,7 +81,7 @@ if __name__ == '__main__':
     if g.INIT_PATH_SEARCH_ON:
         init_path_search()
         g.I_TRAJ = "DMF_final.traj" #ignores args.input
-    else:
+    elif not g.PRESERVE_CSV_ON:
         write_energies(g.I_TRAJ, g.R_CSV)
     iter_lmax()
     

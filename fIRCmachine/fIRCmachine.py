@@ -19,6 +19,7 @@ import cupy
 
 # Project modules
 import default_config as g
+from instant_plot import instant_plot
 from orb_models.forcefield import pretrained
 from orb_models.forcefield.calculator import ORBCalculator
 from pyscf import M
@@ -62,7 +63,7 @@ def iter_lmax():
     df_new = pd.read_csv(g.R_CSV)
     # detect & save local maxima
     peak_files = []
-    peak_files = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
+    peak_files, peak_idx = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
     
     # write csv (accepts a pair of elements or lists)
     def write_result(column_name, value):
@@ -190,11 +191,14 @@ def iter_lmax():
     t_vib_sum = timepfc() - t_vib_sum_start
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
-
+    
+    # plot
+    if g.SAVE_FIG_ON:
+        instant_plot(df_new, peak_idx)
 
 # set calculator
 def myCalculator(type, atoms, base_name):
-    #pyscf
+    # pyscf
     if type == "pyscf":
         # pyscf config
         mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-SVP",
@@ -232,7 +236,7 @@ def myCalculator(type, atoms, base_name):
             raise NotImplementedError("When 'pyscf_3c' is specified, the xc string must end with '3c'.")
         calculator = PySCFCalculator(mf, xc_3c=xc_3c)
         
-    #pyscf_fine
+    # pyscf_fine
     elif type == "pyscf_fine":
         # pyscf config
         mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-TZVPD",
@@ -247,7 +251,7 @@ def myCalculator(type, atoms, base_name):
             mf = mf.to_gpu()
         calculator = PySCF(method=mf)
         
-    #orbmol
+    # orbmol
     elif type == "orbmol":
         orbff = pretrained.orb_v3_conservative_omol(
             device=g.DEVICE,
@@ -292,20 +296,20 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
     # Input basename (e.g., input.xyz → input)
     base_name = os.path.splitext(os.path.basename(maxima_filename))[0]
     print(f"Detected {len(peaks)} peak(s). Saving structures:")
-    peak_list = []
+    peak_files = []
     
     # Add first and last frames
     endpoints = np.array([0, len(traj) - 1])
-    peaks = np.unique(np.concatenate([peaks, endpoints]))
+    peak_idx = np.unique(np.concatenate([peaks, endpoints]))
 
-    for idx in peaks:
+    for idx in peak_idx:
         atoms = traj[idx]
         filename = f"{base_name}_{idx}.xyz"
-        peak_list.append(filename)
+        peak_files.append(filename)
         write(filename, atoms)
         print(f"  → {filename} (energy = {energies[idx]:.6f})")
 
-    return peak_list
+    return peak_files, peak_idx
 
 
 # run MEPopt with FB-ENM/DMF
@@ -589,7 +593,7 @@ def write_energies(traj_name, csv_name=None):
             print(f"Warning: missing value for {traj_name}.traj atom {i}: {e}")
             data.append([i, None, None, None])
     df = pd.DataFrame(data,
-        columns=["image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"]
+        columns=["# image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"]
         )
     # Relative energy (kcal/mol)
     if df["energy [kcal/mol]"].notna().any():
@@ -673,7 +677,7 @@ if __name__ == '__main__':
     if g.INIT_PATH_SEARCH_ON:
         init_path_search()
         g.I_TRAJ = "DMF_final.traj" #ignores args.input
-    else:
+    elif not g.PRESERVE_CSV_ON:
         write_energies(g.I_TRAJ, g.R_CSV)
     iter_lmax()
     

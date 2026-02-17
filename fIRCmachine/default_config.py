@@ -9,6 +9,8 @@ VIB_ON: bool = True
 OTHER_JOBS_EXAMPLE_ON: bool = False
 WRITE_SUGGESTIONS_ON: bool = True
 SUGGESTIONS: list = []
+SAVE_FIG_ON: bool = True
+PRESERVE_CSV_ON: bool = False
 CURRENT_DIR: str = "."
 TIME_LOG_NAME: str = "timing.log"
 
