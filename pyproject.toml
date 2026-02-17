@@ -1,9 +1,0 @@
-[project]
-name = "fIRCmachine"
-version = "0.1.0"
-authors = [{ name="", email="" }]
-description = "fIRCmachine package"
-dependencies = []
-
-[project.optional-dependencies]
-dev = []
