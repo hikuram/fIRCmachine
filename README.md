@@ -5,7 +5,7 @@
 fIRCmachineは、反応経路（IRC）、遷移状態（TS）最適化、振動解析（VIB）などを自動化するPythonベースの計算化学ツールキットです。
 
 ## 特徴
-- ASE, PySCF, Sella, orb_models, gpu4pyscf, dmf, cupy などの先端パッケージを活用
+- ASE, dmf, Sella, orb_models, PySCF, gpu4pyscf, tblite, cupy などの先端パッケージを活用
 - 反応経路探索、TS最適化、振動解析を一括実行
 - グローバル設定（default_config.py）による柔軟なワークフロー制御
 - CLIからの簡単な実行
@@ -14,13 +14,14 @@ fIRCmachineは、反応経路（IRC）、遷移状態（TS）最適化、振動�
 ### 依存パッケージ
 - Python 3.8以降
 - [ASE](https://wiki.fysik.dtu.dk/ase/)
-- [PySCF](https://pyscf.org/)
+- [dmf](https://github.com/hikuram/dmf)
 - [Sella](https://sellegroup.github.io/sella/)
 - [orb_models](https://github.com/hikuram/orb_models)
+- [PySCF](https://pyscf.org/)
 - [gpu4pyscf](https://github.com/hikuram/gpu4pyscf)
-- [dmf](https://github.com/hikuram/dmf)
+- [tblite](https://github.com/tblite/tblite)
 - [cupy](https://cupy.dev/)
-- numpy, pandas, scipy
+- numpy, pandas, scipy, seaborn
 - [redox_benchmark](https://github.com/hikuram/redox_benchmark)（※下記参照）
 
 `requirements.txt` を利用してインストールできます：
@@ -51,7 +52,7 @@ pip install --no-deps git+https://github.com/hikuram/redox_benchmark.git
 詳細な設定は `fIRCmachine/default_config.py` を編集、または各スクリプト先頭のコメントアウト行で上書き可能です。
 
 ## ライセンス
-MIT License
+GPL-3.0 License
 
 ## 注意・謝辞
 - 本ツールの一部コードは [ColabReaction](https://github.com/hikuram/ColabReaction) パッケージを参考・流用しています。
