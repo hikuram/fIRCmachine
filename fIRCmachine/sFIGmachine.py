@@ -34,7 +34,7 @@ g.PRESERVE_CSV_ON = True
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run IRC calculations with the input trajectory')
+    parser = argparse.ArgumentParser(description='Create a figure with the input trajectory and exit')
     parser.add_argument("-d", "--directory", type=str, required=True, help="path to the destination folder")
     parser.add_argument("-c", "--charge", type=int, required=True, help="system total charge")
     parser.add_argument("-m", "--method", type=str, required=False, default="orbmol", help="calculation method of the PES")
@@ -91,4 +91,5 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
+
 
