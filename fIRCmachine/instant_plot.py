@@ -28,7 +28,7 @@ def add_underglow(ax: Optional[plt.Axes] = None, alpha_underglow: float = 0.1) -
     ax.set(xlim=xlims, ylim=ylims)
     
 # plot
-def instant_plot(dataframe, peak_idx):
+def instant_plot(dataframe, peak_idx, fig_name):
     
     plt.style.use(os.path.dirname(os.path.abspath(__file__))+"/example.mplstyle")
     plt.rcParams['font.family'] = ['Arial']
@@ -54,5 +54,6 @@ def instant_plot(dataframe, peak_idx):
             y = dataframe[colname][x]
             axes[n, 1].text(x, y, '{:.8g}'.format(y), ha='center')
 
-    plt.savefig("figure.png")
+    plt.savefig(fig_name)
+
 
