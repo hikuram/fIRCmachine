@@ -63,7 +63,7 @@ def iter_lmax():
     df_new = pd.read_csv(g.R_CSV)
     # detect & save local maxima
     peak_files = []
-    peak_files, peak_idx = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
+    peak_files, g.PEAK_IDX = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
     
     # write csv (accepts a pair of elements or lists)
     def write_result(column_name, value):
@@ -191,10 +191,6 @@ def iter_lmax():
     t_vib_sum = timepfc() - t_vib_sum_start
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
-    
-    # plot
-    if g.SAVE_FIG_ON:
-        instant_plot(df_new, peak_idx)
 
 # set calculator
 def myCalculator(type, atoms, base_name):
@@ -315,16 +311,16 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
     
     # Add first and last frames
     endpoints = np.array([0, len(traj) - 1])
-    peak_idx = np.unique(np.concatenate([peaks, endpoints]))
+    g.PEAK_IDX = np.unique(np.concatenate([peaks, endpoints]))
 
-    for idx in peak_idx:
+    for idx in g.PEAK_IDX:
         atoms = traj[idx]
         filename = f"{base_name}_{idx}.xyz"
         peak_files.append(filename)
         write(filename, atoms)
         print(f"  → {filename} (energy = {energies[idx]:.6f})")
 
-    return peak_files, peak_idx
+    return peak_files, g.PEAK_IDX
 
 
 # run MEPopt with FB-ENM/DMF
@@ -623,9 +619,9 @@ def write_energies(traj_name, csv_name=None):
 # finishing work
 def finishing():
     # write relative * energy (kcal/mol)
+    df = pd.read_csv(g.R_CSV)
     if g.VIB_ON:
         try:
-            df = pd.read_csv(g.R_CSV)
             if df["E_0K [kcal/mol]"].notna().any():
                 df["Delta E_0K vs. reactant [kcal/mol]"] = df["E_0K [kcal/mol]"] - df.loc[0, "E_0K [kcal/mol]"]
             if df["H [kcal/mol]"].notna().any():
@@ -635,6 +631,11 @@ def finishing():
             df.to_csv(g.R_CSV, index=False)
         except Exception as e:
             print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
+    
+    # plot
+    if g.SAVE_FIG_ON:
+        figname = f"fig_{os.path.basename(g.R_CSV)}.png"
+        instant_plot(df, g.PEAK_IDX, figname)
     
     # suggest the next steps
     if g.WRITE_SUGGESTIONS_ON and len(g.SUGGESTIONS)>0:
@@ -702,4 +703,5 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
+
 
