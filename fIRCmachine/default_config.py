@@ -15,16 +15,21 @@ CURRENT_DIR: str = "."
 TIME_LOG_NAME: str = "timing.log"
 
 # Calculation settings
-CALC_TYPE: str = "orbmol"  # "orbmol", "pyscf", "pyscf_fine"
+CALC_TYPE: str = "orbmol"  # "orbmol", "orbmol+alpb", "pyscf", "pyscf_fine", "pyscf_3c"
 DEVICE: str = "cuda"  # "cuda" or "cpu"
 
-# Physical constants
+# Model settings
 MULT: int = 1
+
+# Module-specific settings
+# -DMF
 NMOVE: int = 40
 UPDATE_TEVAL: bool = False
 DMF_CONVERGENCE: str = "tight"
+# -Sella
 SELLA_INTERNAL: bool = True
 IRC_DX: float = 0.08
 
+# Physical constants
 EV_TO_KCAL_MOL: float = 23.0605
 EV_TO_HARTREE: float = 1 / 27.2114  # ≒ 0.0367493
