@@ -56,6 +56,11 @@ RUN pip3 install pandas morfeus-ml ase rmsd sella orb-models cyipopt pydmf seabo
 RUN git clone --depth 1 https://github.com/hikuram/redox_benchmark.git
 RUN pip3 install --no-deps -e redox_benchmark
 
+# alpb may require tblite=0.5.0
+# workaround about broken wheel issue (https://github.com/tblite/tblite/pull/300#issuecomment-3706915463)
+ENV LDFLAGS="-Wl,--no-as-needed -lmvec -lm -lgfortran"
+RUN pip3 install --no-binary=tblite --no-cache-dir tblite
+
 RUN git clone --depth 1 https://github.com/hikuram/fIRCmachine.git　/opt/fIRCmachine
 ENV PYTHONPATH="/opt/fIRCmachine/fIRCmachine:${PYTHONPATH}"
 
