@@ -14,15 +14,15 @@ fIRCmachineは、反応経路（IRC）、遷移状態（TS）最適化、振動�
 ### 依存パッケージ
 - Python 3.8以降
 - [ASE](https://wiki.fysik.dtu.dk/ase/)
-- [dmf](https://github.com/hikuram/dmf)
+- [dmf](https://github.com/shin1koda/dmf)
 - [Sella](https://sellegroup.github.io/sella/)
-- [orb_models](https://github.com/hikuram/orb_models)
+- [orb_models](https://github.com/orbital-materials/orb-models)
 - [PySCF](https://pyscf.org/)
-- [gpu4pyscf](https://github.com/hikuram/gpu4pyscf)
+- [gpu4pyscf](https://github.com/pyscf/gpu4pyscf)
 - [tblite](https://github.com/tblite/tblite)
 - [cupy](https://cupy.dev/)
 - numpy, pandas, scipy, seaborn
-- [redox_benchmark](https://github.com/hikuram/redox_benchmark)（※下記参照）
+- [redox_benchmark](https://github.com/AM3GroupHub/redox_benchmark)（※下記参照）
 
 `requirements.txt` を利用してインストールできます：
 
@@ -55,7 +55,7 @@ pip install --no-deps git+https://github.com/hikuram/redox_benchmark.git
 GPL-3.0 License
 
 ## 注意・謝辞
-- 本ツールの一部コードは [ColabReaction](https://github.com/hikuram/ColabReaction) パッケージを参考・流用しています。
+- 本ツールの一部コードは [ColabReaction](https://github.com/BILAB/ColabReaction) パッケージを参考・流用しています。
 	- ColabReactionのライセンス・著作権表示に従ってください。
 - 各依存パッケージのライセンスもご確認ください。
 
