@@ -350,7 +350,7 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     except Exception as e:
         write("DMF_last_before_error.xyz", mxflx.images)
         write("DMF_last_before_error.traj", mxflx.images)
-        sys.exit("abort: DirectMaxFlux.solve failed: {e}")
+        sys.exit(f"abort: DirectMaxFlux.solve failed: {e}")
     
     # DMF_final.traj: Recalculate SPC for mxflx.images (some frames lack energy)
     final_images = []
@@ -634,7 +634,7 @@ def finishing():
     
     # plot
     if g.SAVE_FIG_ON:
-        figname = f"fig_{os.path.basename(g.R_CSV)}.png"
+        figname = f"fig_{os.path.splitext(os.path.basename(g.R_CSV))[0]}.png"
         instant_plot(df, g.PEAK_IDX, figname)
     
     # suggest the next steps
@@ -703,5 +703,6 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
+
 
 
