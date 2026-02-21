@@ -20,7 +20,6 @@ import cupy
 # Project modules
 import default_config as g
 from instant_plot import instant_plot
-from pyscf import M
 from dmf import DirectMaxFlux, interpolate_fbenm
 from sella import Sella, Constraints, IRC
 
@@ -192,6 +191,7 @@ def iter_lmax():
 def myCalculator(type, atoms, base_name):
     # pyscf
     if type == "pyscf":
+        from pyscf import M
         from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
         from gpu4pyscf.tools.ase_interface import PySCF
         # pyscf config
@@ -211,6 +211,7 @@ def myCalculator(type, atoms, base_name):
         calculator = PySCF(method=mf)
         
     elif type == "pyscf_3c":
+        from pyscf import M
         from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
         from gpu4pyscf.tools.ase_interface import PySCF
         from redox.utils.pyscf_utils import PySCFCalculator, build_3c_method
@@ -234,6 +235,7 @@ def myCalculator(type, atoms, base_name):
         
     # pyscf_fine
     elif type == "pyscf_fine":
+        from pyscf import M
         from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
         from gpu4pyscf.tools.ase_interface import PySCF
         # pyscf config
@@ -709,6 +711,7 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
+
 
 
 
