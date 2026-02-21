@@ -20,11 +20,7 @@ import cupy
 # Project modules
 import default_config as g
 from instant_plot import instant_plot
-from orb_models.forcefield import pretrained
-from orb_models.forcefield.calculator import ORBCalculator
 from pyscf import M
-from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-from gpu4pyscf.tools.ase_interface import PySCF
 from dmf import DirectMaxFlux, interpolate_fbenm
 from sella import Sella, Constraints, IRC
 
@@ -196,6 +192,8 @@ def iter_lmax():
 def myCalculator(type, atoms, base_name):
     # pyscf
     if type == "pyscf":
+        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
+        from gpu4pyscf.tools.ase_interface import PySCF
         # pyscf config
         mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-SVP",
             ecp="def2-SVP", charge=g.CHARGE, spin=g.MULT-1,
@@ -212,7 +210,9 @@ def myCalculator(type, atoms, base_name):
             mf = mf.to_gpu()
         calculator = PySCF(method=mf)
         
-    if type == "pyscf_3c":
+    elif type == "pyscf_3c":
+        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
+        from gpu4pyscf.tools.ase_interface import PySCF
         from redox.utils.pyscf_utils import PySCFCalculator, build_3c_method
         # build method
         config = {}
@@ -234,6 +234,8 @@ def myCalculator(type, atoms, base_name):
         
     # pyscf_fine
     elif type == "pyscf_fine":
+        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
+        from gpu4pyscf.tools.ase_interface import PySCF
         # pyscf config
         mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-TZVPD",
             ecp="def2-TZVPD", charge=g.CHARGE, spin=g.MULT-1,
@@ -249,6 +251,8 @@ def myCalculator(type, atoms, base_name):
         
     # orbmol
     elif type == "orbmol":
+        from orb_models.forcefield import pretrained
+        from orb_models.forcefield.calculator import ORBCalculator
         orbff = pretrained.orb_v3_conservative_omol(
             device=g.DEVICE,
             precision="float64",   # "float32"/ "float32-highest"/ "float64"
@@ -257,6 +261,8 @@ def myCalculator(type, atoms, base_name):
 
     # orbmol+alpb
     elif type == "orbmol+alpb":
+        from orb_models.forcefield import pretrained
+        from orb_models.forcefield.calculator import ORBCalculator
         from ase.calculators.mixing import LinearCombinationCalculator
         from tblite.ase import TBLite
         orbff = pretrained.orb_v3_conservative_omol(
@@ -703,6 +709,7 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
+
 
 
 
