@@ -58,10 +58,13 @@ RUN pip3 install --no-deps -e redox_benchmark
 
 # alpb may require tblite=0.5.0
 # workaround about broken wheel issue (https://github.com/tblite/tblite/pull/300#issuecomment-3706915463)
+# tblite fork (source build)
 ENV LDFLAGS="-Wl,--no-as-needed -lmvec -lm -lgfortran"
-RUN pip3 install --no-binary=tblite --no-cache-dir tblite
+RUN pip3 install --no-cache-dir --no-binary=tblite \
+    "tblite @ git+https://github.com/hikuram/tblite.git@main"
 
-RUN git clone --depth 1 https://github.com/hikuram/fIRCmachine.git　/opt/fIRCmachine
+# Prepare scripts
+RUN git clone --depth 1 https://github.com/hikuram/fIRCmachine.git /opt/fIRCmachine
 ENV PYTHONPATH="/opt/fIRCmachine/fIRCmachine:${PYTHONPATH}"
 
 # Set working directory
