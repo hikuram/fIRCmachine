@@ -7,21 +7,21 @@ from datetime import datetime
 from fIRCmachine import *
 
 
-# overwrite global variables (all uppercase)
+# Overwrite global variables (all uppercase)
 g.INIT_PATH_SEARCH_ON = False
 g.REFINE_INPUT_ON = False
 g.USE_SELLA_IN_OPT = False
-g.TSOPT_ON = True
-g.IRC_ON = True
-g.VIB_ON = False
+g.TSOPT_ON = False
+g.IRC_ON = False
+g.VIB_ON = True
 g.OTHER_JOBS_EXAMPLE_ON = False
-#g.WRITE_SUGGESTIONS_ON = True
+g.WRITE_SUGGESTIONS_ON = False
 #g.SUGGESTIONS = []
 #g.SAVE_FIG_ON = True
 #g.PRESERVE_CSV_ON = False
 #g.CURRENT_DIR = "."
 #g.TIME_LOG_NAME = "timing.log"
-#g.CALC_TYPE = "orbmol" # orbmol or pyscf or pyscf_fine
+#g.CALC_TYPE = "orbmol" # orbmol, pyscf, or pyscf_fine
 #g.DEVICE = "cuda" # cuda or cpu
 #g.MULT = 1
 #g.NMOVE = 40
@@ -30,11 +30,11 @@ g.OTHER_JOBS_EXAMPLE_ON = False
 #g.SELLA_INTERNAL = True
 #g.IRC_DX = 0.08
 #g.EV_TO_KCAL_MOL = 23.0605
-#g.EV_TO_HARTREE = 1 / 27.2114  # ≒ 0.0367493
+#g.EV_TO_HARTREE = 1 / 27.2114  # approx. 0.0367493
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run IRC calculations with the input trajectory')
+    parser = argparse.ArgumentParser(description='Run VIB calculations with the input trajectory')
     parser.add_argument("-d", "--directory", type=str, required=True, help="path to the destination folder")
     parser.add_argument("-c", "--charge", type=int, required=True, help="system total charge")
     parser.add_argument("-m", "--method", type=str, required=False, default="orbmol", help="calculation method of the PES")
@@ -77,16 +77,16 @@ if __name__ == '__main__':
     else:
         print(f"info: {g.R_CSV} will be made")
     
-    # main
+    # Main
     if g.INIT_PATH_SEARCH_ON:
-        init_path_search()
-        g.I_TRAJ = "DMF_final.traj" #ignores args.input
+        run_initial_path_search()
+        g.I_TRAJ = "DMF_final.traj" # ignores args.input
     elif not g.PRESERVE_CSV_ON:
         write_energies(g.I_TRAJ, g.R_CSV)
-    iter_lmax()
+    process_local_maxima()
     
-    # finish
-    finishing()
+    # Finish
+    finalize_run()
     t_total = timepfc() - t_total_start
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)

@@ -17,15 +17,15 @@ fIRCmachine is a Python-based computational chemistry toolkit for reaction path 
 ## Developer Workflows
 - **Run full workflow:**
   ```bash
-  python fIRCmachine/fIRCmachine.py -d <directory>
+  python fircm/fIRCmachine.py -d <directory>
   ```
 - **Run IRC only:**
   ```bash
-  python fIRCmachine/pIRCmachine.py -d <directory>
+  python fircm/pIRCmachine.py -d <directory>
   ```
 - **Run VIB only:**
   ```bash
-  python fIRCmachine/sVIBmachine.py -d <directory>
+  python fircm/sVIBmachine.py -d <directory>
   ```
 - **Config tweaks:** Edit `default_config.py` or override in script (see commented lines in each script).
 
@@ -45,16 +45,16 @@ fIRCmachine is a Python-based computational chemistry toolkit for reaction path 
 ## Examples
 - To run a full workflow on GPU:
   ```bash
-  python fIRCmachine/fIRCmachine.py -d results --device cuda
+  python fircm/fIRCmachine.py -d results --device cuda
   ```
 - To customize calculation type:
   Edit `default_config.py`: `CALC_TYPE = "pyscf"`
 
 ## Key Files
-- `fIRCmachine/fIRCmachine.py`: Main workflow
-- `fIRCmachine/pIRCmachine.py`: IRC workflow
-- `fIRCmachine/sVIBmachine.py`: VIB workflow
-- `fIRCmachine/default_config.py`: Global config
+- `fircm/fIRCmachine.py`: Main workflow
+- `fircm/pIRCmachine.py`: IRC workflow
+- `fircm/sVIBmachine.py`: VIB workflow
+- `fircm/default_config.py`: Global config
 
 ---
 **Update this file if new scripts, config flags, or workflows are added.**

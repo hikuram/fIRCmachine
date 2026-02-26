@@ -23,12 +23,12 @@ from instant_plot import instant_plot
 from dmf import DirectMaxFlux, interpolate_fbenm
 from sella import Sella, Constraints, IRC
 
-# overwrite global variables
+# Overwrite global variables
 #g.INIT_PATH_SEARCH_ON = False
-# ...Example settings are described in README or default_config.py...
+# Example settings are described in README or default_config.py.
 
-# FB-ENM/DMF optimization in first
-def init_path_search():
+# FB-ENM/DMF optimization (first stage)
+def run_initial_path_search():
     reactant = read("reactant.xyz")
     product = read("product.xyz")
     
@@ -53,14 +53,14 @@ def init_path_search():
     txt = f"* FB-ENM/DMF_Total      | {t_dmf:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
 
-# following iterations for all lmax
-def iter_lmax():
+# Repeat for each local maximum
+def process_local_maxima():
     df_new = pd.read_csv(g.R_CSV)
-    # detect & save local maxima
+    # Detect and save local maxima
     peak_files = []
     peak_files, g.PEAK_IDX = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
     
-    # write csv (accepts a pair of elements or lists)
+    # Write CSV (accepts a pair of elements or lists)
     def write_result(column_name, value):
         if not isinstance(column_name, list):
             column_name = [column_name]
@@ -72,7 +72,7 @@ def iter_lmax():
         except Exception as e:
             print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
     
-    # sub iter 1: ignores endpoints
+    # Sub-iteration 1: ignore endpoints
     irc_trajs_str = ""
     t_tsopt_irc_start = timepfc()
     for i, peak_file in enumerate(peak_files):
@@ -81,12 +81,12 @@ def iter_lmax():
                 continue
         
         base_name = os.path.splitext(peak_file)[0]
-        idx = int(base_name.split('_')[-1].split('.')[0]) #index of lmax
+        idx = int(base_name.split('_')[-1].split('.')[0]) # index of local maximum
         atoms = read(peak_file)
         atoms.info["charge"] = g.CHARGE
         atoms.info["spin"] = g.MULT
         
-        # == do TSopt ===================
+        # == Run TS optimization ===================
         if g.TSOPT_ON:
             t_tsopt_start = timepfc()
             try:
@@ -97,7 +97,7 @@ def iter_lmax():
             write_result('time_TSopt [s]', t_tsopt)
             print(f"tsopt {t_tsopt} sec")
         
-        # == do IRC ===================
+        # == Run IRC ===================
         if g.IRC_ON:
             t_irc_start = timepfc()
             try:
@@ -121,11 +121,11 @@ def iter_lmax():
     write_line(g.TIME_LOG_NAME, txt)
     g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
     
-    # sub iter 2: includes endpoints
+    # Sub-iteration 2: include endpoints
     t_vib_sum_start = timepfc()
     for i, peak_file in enumerate(peak_files):
         base_name = os.path.splitext(peak_file)[0]
-        idx = int(base_name.split('_')[-1].split('.')[0]) #index of lmax
+        idx = int(base_name.split('_')[-1].split('.')[0]) # index of local maximum
         atoms = read(peak_file)
         atoms.info["charge"] = g.CHARGE
         atoms.info["spin"] = g.MULT
@@ -176,8 +176,8 @@ def iter_lmax():
         # ==
         
         # == Refinement ===================
-        # under construction
-        # write results
+        # Under construction
+        # Write results
             #    df_new.at[df_new.index[idx], 'energy_DFT [eV]'] = np.nan #energy_eV
             #    df_new.at[df_new.index[idx], 'energy_DFT [kcal/mol]'] = np.nan #energy_eV * g.EV_TO_KCAL_MOL
             #    df_new.at[df_new.index[idx], 'time_DFT [s]'] = np.nan #t_dft
@@ -187,14 +187,14 @@ def iter_lmax():
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
 
-# set calculator
-def myCalculator(type, atoms, base_name):
-    # pyscf
+# Set calculator
+def make_calculator(type, atoms, base_name):
+    # PySCF
     if type == "pyscf":
         from pyscf import M
         from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
         from gpu4pyscf.tools.ase_interface import PySCF
-        # pyscf config
+        # PySCF configuration
         mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-SVP",
             ecp="def2-SVP", charge=g.CHARGE, spin=g.MULT-1,
             output=base_name+'_pyscf.log', verbose=4
@@ -215,7 +215,7 @@ def myCalculator(type, atoms, base_name):
         from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
         from gpu4pyscf.tools.ase_interface import PySCF
         from redox.utils.pyscf_utils import PySCFCalculator, build_3c_method
-        # build method
+        # Build method
         config = {}
         config["xc"] = "r2scan3c"
         config["with_solvent"] = True
@@ -233,12 +233,12 @@ def myCalculator(type, atoms, base_name):
             raise NotImplementedError("When 'pyscf_3c' is specified, the xc string must end with '3c'.")
         calculator = PySCFCalculator(mf, xc_3c=xc_3c)
         
-    # pyscf_fine
+    # PySCF (fine)
     elif type == "pyscf_fine":
         from pyscf import M
         from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
         from gpu4pyscf.tools.ase_interface import PySCF
-        # pyscf config
+        # PySCF configuration
         mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-TZVPD",
             ecp="def2-TZVPD", charge=g.CHARGE, spin=g.MULT-1,
             output=base_name+'_pyscf.log', verbose=4
@@ -282,7 +282,7 @@ def myCalculator(type, atoms, base_name):
         sys.exit("error: incorrect calc type")
     return calculator
 
-# parse input traj
+# Parse input trajectory
 from typing import List
 
 def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: float = 0.01) -> List[str]:
@@ -298,7 +298,7 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
         energies.append(energy)
     energies = np.array(energies)
 
-    # fill NaN
+    # Fill NaN
     def forward_fill_nan(arr):
         filled = arr.copy()
         last_valid = np.nan
@@ -312,7 +312,7 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
 
     # peak detection
     peaks, _ = find_peaks(energies_filled, prominence=prominence)
-    # Input basename (e.g., input.xyz → input)
+    # Input basename (e.g., input.xyz -> input)
     base_name = os.path.splitext(os.path.basename(maxima_filename))[0]
     print(f"Detected {len(peaks)} peak(s). Saving structures:")
     peak_files = []
@@ -331,12 +331,12 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
     return peak_files, g.PEAK_IDX
 
 
-# run MEPopt with FB-ENM/DMF
+# Run MEP optimization with FB-ENM/DMF
 def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     # Read reactant and product
     ref_images = [reactant_atoms, product_atoms]
     
-    # Generate initial path by FB-ENM
+    # Generate initial path using FB-ENM
     mxflx_fbenm = interpolate_fbenm(ref_images, correlated=True)
     write('DMF_init.xyz', mxflx_fbenm.images)
     
@@ -350,8 +350,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     # Set up calculator
     for img in mxflx.images:
         img.info = {"charge": g.CHARGE, "spin": g.MULT}
-        img.calc = myCalculator(g.CALC_TYPE, img, "DMF_init")
-    # do solve
+        img.calc = make_calculator(g.CALC_TYPE, img, "DMF_init")
+    # Solve
     mxflx.add_ipopt_options({'output_file': 'DMF_ipopt.out'})
     try:
         mxflx.solve(tol=g.DMF_CONVERGENCE)
@@ -360,13 +360,13 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
         write("DMF_last_before_error.traj", mxflx.images)
         sys.exit(f"abort: DirectMaxFlux.solve failed: {e}")
     
-    # DMF_final.traj: Recalculate SPC for mxflx.images (some frames lack energy)
+    # DMF_final.traj: Recompute SPC for mxflx.images (some frames lack energy)
     final_images = []
     for img in mxflx.images:
         # Copy atoms and info
         atoms = Atoms(positions=img.get_positions(), numbers=img.get_atomic_numbers())
         atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
-        atoms.calc = myCalculator(g.CALC_TYPE, atoms, "DMF_final")
+        atoms.calc = make_calculator(g.CALC_TYPE, atoms, "DMF_final")
         try:
             # Explicitly calculate energy
             _ = atoms.get_potential_energy()
@@ -381,22 +381,22 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     # final_images: save images to .traj
     write('DMF_final.traj', final_images)
     traj_to_xyz(final_images, 'DMF_final.xyz')
-    # write result
+    # Write results
     write_energies('DMF_final.traj', g.R_CSV)
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/DMF_final.traj")
 
-# write txt
+# Write text file
 def write_line(txtfile_name, txt):
     with open(txtfile_name, 'a', encoding='utf-8') as f:
         f.write(txt)
 
-# run Opt with ASE
+# Run optimization with ASE
 def opt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info = {"charge": g.CHARGE, "spin": g.MULT}
-    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
-    # Set up a ASE optimizer object with L-BFGS
+    img.calc = make_calculator(g.CALC_TYPE, img, img_name)
+    # Set up an ASE optimizer (L-BFGS)
     opt = LBFGS(img, trajectory=img_name+"_opt.traj", logfile=img_name+"_opt.log")
     opt.run(fmax=0.01, steps=10000)
     write(img_name+"_opt.xyz", img)
@@ -407,13 +407,13 @@ def opt_img(xyz_name: str) -> Atoms:
     return img
 
 
-# run Opt with Sella
+# Run optimization with Sella
 def opt_sella_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info = {"charge": g.CHARGE, "spin": g.MULT}
-    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
-    # Set up a Sella Dynamics object with "order=0"
+    img.calc = make_calculator(g.CALC_TYPE, img, img_name)
+    # Set up a Sella Dynamics object (order=0)
     dyn = Sella(
         img, internal=g.SELLA_INTERNAL, order=0, constraints=None,
         trajectory=img_name+'_opt.traj', logfile=img_name+"_opt.log"
@@ -427,12 +427,12 @@ def opt_sella_img(xyz_name: str) -> Atoms:
     return img
 
 
-# run TSopt with Sella
+# Run TS optimization with Sella
 def tsopt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info = {"charge": g.CHARGE, "spin": g.MULT}
-    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
+    img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella Dynamics object
     dyn = Sella(
         img, internal=g.SELLA_INTERNAL, order=1, constraints=None,
@@ -447,12 +447,12 @@ def tsopt_img(xyz_name: str) -> Atoms:
     return img
 
 
-# run IRC with Sella
+# Run IRC with Sella
 def irc_img(xyz_name: str) -> List[float]:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info = {"charge": g.CHARGE, "spin": g.MULT}
-    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
+    img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella IRC object
     opt = IRC(img, trajectory=img_name+'_irc.traj',
         logfile=img_name+"_irc.log",
@@ -530,19 +530,19 @@ def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
             new_atoms.set_positions(displaced)
             images.append(new_atoms.copy())
 
-    generate_half_cycle(+1)  # +mode → original
-    generate_half_cycle(-1)  # -mode → original
+    generate_half_cycle(+1)  # +mode -> original
+    generate_half_cycle(-1)  # -mode -> original
     write(output, images)
     print(f"[Info] Wrote {len(images)} frames to {output}")
 
 
-# run Vib and Thermo
+# Run vibrations and thermodynamics
 def vib_img(xyz_name):
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
-    img.calc = myCalculator(g.CALC_TYPE, img, img_name)
+    img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     #forces = img.get_forces()
     vib = Vibrations(img, name="vib_temp")
     vib.run()
@@ -555,8 +555,8 @@ def vib_img(xyz_name):
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
 
     # Ideal-gas limit
-    # guess geometry='nonlinear', symmetrynumber=1
-    # use ignore_imag_modes=True
+    # Guess geometry='nonlinear', symmetrynumber=1
+    # Use ignore_imag_modes=True
     potentialenergy = img.get_potential_energy()
     vib_energies = vib.get_energies()
     
@@ -566,10 +566,10 @@ def vib_img(xyz_name):
         ignore_imag_modes=True
     )
     energy_eV = vib.atoms.get_potential_energy()
-    zpe_eV = vib.get_zero_point_energy()  # unit: eV
+    zpe_eV = vib.get_zero_point_energy()  # Units: eV
     H_eV = thermo.get_enthalpy(temperature=298.15)
     G_eV = thermo.get_gibbs_energy(temperature=298.15, pressure=101325.0)
-        # room temperature=298.15 # standard atmosphere=101325.0
+        # Room temperature=298.15 # Standard atmosphere=101325.0
     
     zpe_kcal = g.EV_TO_KCAL_MOL * zpe_eV
     E_0K_kcal = g.EV_TO_KCAL_MOL * (zpe_eV + energy_eV)
@@ -595,7 +595,7 @@ def traj_to_xyz(traj, out_xyz_path):
     except Exception as e:
         print(f"Warning: An error occurred while writing {out_xyz_path}: {e}")
 
-# Extract enegies from traj to csv
+# Extract energies from trajectory to CSV
 def write_energies(traj_name, csv_name=None):
     if not csv_name:
         csv_name = os.path.splitext(traj_name)[0]+"_energy.csv"
@@ -620,13 +620,13 @@ def write_energies(traj_name, csv_name=None):
         df["Delta E vs. reactant [kcal/mol]"] = df["energy [kcal/mol]"] - ref
     else:
         df["Delta E vs. reactant [kcal/mol]"] = None
-    # write
+    # Write
     df.to_csv(csv_name, index=False)
 
 
-# finishing work
-def finishing():
-    # write relative * energy (kcal/mol)
+# Finishing steps
+def finalize_run():
+    # Write relative energy (kcal/mol)
     df = pd.read_csv(g.R_CSV)
     if g.VIB_ON:
         try:
@@ -645,7 +645,7 @@ def finishing():
         figname = f"fig_{os.path.splitext(os.path.basename(g.R_CSV))[0]}.png"
         instant_plot(df, g.PEAK_IDX, figname)
     
-    # suggest the next steps
+    # Suggest next steps
     if g.WRITE_SUGGESTIONS_ON and len(g.SUGGESTIONS)>0:
         print("(suggestion) your next steps may be ...")
         with open("suggestions.txt", "a", encoding='utf-8') as f:
@@ -697,16 +697,16 @@ if __name__ == '__main__':
     else:
         print(f"info: {g.R_CSV} will be made")
     
-    # main
+    # Main
     if g.INIT_PATH_SEARCH_ON:
-        init_path_search()
-        g.I_TRAJ = "DMF_final.traj" #ignores args.input
+        run_initial_path_search()
+        g.I_TRAJ = "DMF_final.traj" # ignores args.input
     elif not g.PRESERVE_CSV_ON:
         write_energies(g.I_TRAJ, g.R_CSV)
-    iter_lmax()
+    process_local_maxima()
     
-    # finish
-    finishing()
+    # Finish
+    finalize_run()
     t_total = timepfc() - t_total_start
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)

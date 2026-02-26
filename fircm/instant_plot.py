@@ -4,16 +4,16 @@ from typing import Optional
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# add_underglow, taken from mplcyberpunk(https://github.com/dhaitz/mplcyberpunk)
+# add_underglow, adapted from mplcyberpunk (https://github.com/dhaitz/mplcyberpunk)
 def add_underglow(ax: Optional[plt.Axes] = None, alpha_underglow: float = 0.1) -> None:
     """Add an 'underglow' effect, i.e. faintly color the area below the line."""
     if not ax:
         ax = plt.gca()
-    # because ax.fill_between changes axis limits, save current xy-limits to restore them later:
+    # Because ax.fill_between changes axis limits, save current x/y limits to restore later:
     xlims, ylims = ax.get_xlim(), ax.get_ylim()
     lines = ax.get_lines()
     for line in lines:
-        # parameters to be used from original line:
+        # Parameters to use from the original line:
         x, y = line.get_data(orig=False)
         color = line.get_c()
         transform = line.get_transform()
@@ -27,7 +27,7 @@ def add_underglow(ax: Optional[plt.Axes] = None, alpha_underglow: float = 0.1) -
         )
     ax.set(xlim=xlims, ylim=ylims)
     
-# plot
+# Plot
 def instant_plot(dataframe, peak_idx, fig_name):
     
     plt.style.use(os.path.dirname(os.path.abspath(__file__))+"/example.mplstyle")

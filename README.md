@@ -38,18 +38,18 @@ pip install --no-deps git+https://github.com/hikuram/redox_benchmark.git
 ## 使い方
 - フルワークフロー（IRC, TS, VIB）
 	```bash
-	python fIRCmachine/fIRCmachine.py -d <出力ディレクトリ> -c <電荷>
+	python fircm/fIRCmachine.py -d <出力ディレクトリ> -c <電荷>
 	```
 - IRCのみ
 	```bash
-	python fIRCmachine/pIRCmachine.py -d <出力ディレクトリ> -c <電荷>
+	python fircm/pIRCmachine.py -d <出力ディレクトリ> -c <電荷>
 	```
 - 振動解析のみ
 	```bash
-	python fIRCmachine/sVIBmachine.py -d <出力ディレクトリ> -c <電荷>
+	python fircm/sVIBmachine.py -d <出力ディレクトリ> -c <電荷>
 	```
 
-詳細な設定は `fIRCmachine/default_config.py` を編集、または各スクリプト先頭のコメントアウト行で上書き可能です。
+詳細な設定は `fircm/default_config.py` を編集、または各スクリプト先頭のコメントアウト行で上書き可能です。
 
 ## ライセンス
 GPL-3.0 License

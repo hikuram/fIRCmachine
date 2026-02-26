@@ -70,7 +70,7 @@ RUN meson setup _build --prefix=/usr/local -Dpython=true \
 RUN pip3 install /opt/tblite/python
 
 RUN git clone --depth 1 https://github.com/hikuram/fIRCmachine.git /opt/fIRCmachine
-ENV PYTHONPATH="/opt/fIRCmachine/fIRCmachine:${PYTHONPATH}"
+ENV PYTHONPATH="/opt/fIRCmachine/fircm:${PYTHONPATH}"
 
 # Set working directory
 WORKDIR /workspace
