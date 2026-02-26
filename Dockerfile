@@ -67,6 +67,7 @@ WORKDIR /opt/tblite
 RUN meson setup _build --prefix=/usr/local -Dpython=true \
  && meson compile -C _build \
  && meson install -C _build
+RUN pip3 install /opt/tblite/python
 
 RUN git clone --depth 1 https://github.com/hikuram/fIRCmachine.git /opt/fIRCmachine
 ENV PYTHONPATH="/opt/fIRCmachine/fIRCmachine:${PYTHONPATH}"
