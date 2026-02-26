@@ -49,6 +49,7 @@ RUN apt-get update && apt-get install -y \
     cython3 \
 #    python3-numpy \
     coinor-libipopt1v5 \
+    coinor-libipopt-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (others)
@@ -56,14 +57,17 @@ RUN pip3 install pandas morfeus-ml ase rmsd sella orb-models cyipopt pydmf seabo
 RUN git clone --depth 1 https://github.com/hikuram/redox_benchmark.git
 RUN pip3 install --no-deps -e redox_benchmark
 
-# alpb may require tblite=0.5.0
-# workaround about broken wheel issue (https://github.com/tblite/tblite/pull/300#issuecomment-3706915463)
-# tblite fork (source build)
-ENV LDFLAGS="-Wl,--no-as-needed -lmvec -lm -lgfortran"
-RUN pip3 install --no-cache-dir --no-binary=tblite \
-    "tblite @ git+https://github.com/hikuram/tblite.git@main"
+# alpb may require tblite>=0.5.0
+# tblite fork (build from source, install python bindings)
+RUN pip3 install meson ninja
+ARG TBLITE_REF=born_floor_test
+RUN git clone --depth 1 --branch ${TBLITE_REF} https://github.com/hikuram/tblite.git /opt/tblite
+WORKDIR /opt/tblite
+# Build + install tblite (and Python extension if enabled)
+RUN meson setup _build --prefix=/usr/local -Dpython=true \
+ && meson compile -C _build \
+ && meson install -C _build
 
-# Prepare scripts
 RUN git clone --depth 1 https://github.com/hikuram/fIRCmachine.git /opt/fIRCmachine
 ENV PYTHONPATH="/opt/fIRCmachine/fIRCmachine:${PYTHONPATH}"
 
