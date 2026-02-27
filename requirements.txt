@@ -1,12 +1,24 @@
+# Core scientific stack
 ase
+numpy
+scipy
+pandas
+matplotlib
+seaborn
+
+# Electronic structure / optimization
 pyscf
 sella
 orb_models
-gpu4pyscf
-dmf
-cupy
-numpy
-pandas
-scipy
-# redox_benchmark: install via pip from GitHub, nodeps
+
+pydmf
+
+# Semi-empirical backend
+tblite
+
+# GPU acceleration (optional)
+# gpu4pyscf
+# cupy
+
+# redox_benchmark: install via pip from GitHub (no deps)
 # pip install --no-deps git+https://github.com/hikuram/redox_benchmark.git

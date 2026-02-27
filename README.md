@@ -5,7 +5,7 @@
 fIRCmachineは、反応経路（IRC）、遷移状態（TS）最適化、振動解析（VIB）などを自動化するPythonベースの計算化学ツールキットです。
 
 ## 特徴
-- ASE, dmf, Sella, orb_models, PySCF, gpu4pyscf, tblite, cupy などの先端パッケージを活用
+- ASE, pydmf, Sella, orb_models, PySCF, gpu4pyscf, tblite, cupy などの先端パッケージを活用
 - 反応経路探索、TS最適化、振動解析を一括実行
 - グローバル設定（default_config.py）による柔軟なワークフロー制御
 - CLIからの簡単な実行
@@ -14,7 +14,7 @@ fIRCmachineは、反応経路（IRC）、遷移状態（TS）最適化、振動�
 ### 依存パッケージ
 - Python 3.8以降
 - [ASE](https://wiki.fysik.dtu.dk/ase/)
-- [dmf](https://github.com/shin1koda/dmf)
+- [pydmf](https://github.com/shin1koda/pydmf)
 - [Sella](https://sellegroup.github.io/sella/)
 - [orb_models](https://github.com/orbital-materials/orb-models)
 - [PySCF](https://pyscf.org/)
@@ -38,15 +38,24 @@ pip install --no-deps git+https://github.com/hikuram/redox_benchmark.git
 ## 使い方
 - フルワークフロー（IRC, TS, VIB）
 	```bash
-	python fircm/fIRCmachine.py -d <出力ディレクトリ> -c <電荷>
+	# <directory_name> is the working directory containing input files
+	# -d : destination directory
+	# -c : total charge
+	# -m : PES method (placeholder: orbmol)
+	# When INIT_PATH_SEARCH_ON=True, -r/-p are required (reactant/product .xyz)
+	python fircm/fIRCmachine.py -d <directory_name> -c <charge> -m orbmol -r reactant.xyz -p product.xyz -rs result.csv
 	```
 - IRCのみ
 	```bash
-	python fircm/pIRCmachine.py -d <出力ディレクトリ> -c <電荷>
+	# INIT_PATH_SEARCH_ON=False inside this script
+	# -i : input trajectory (.traj) or structure (.xyz)
+	python fircm/pIRCmachine.py -d <directory_name> -c <charge> -m orbmol -i input.traj -rs result.csv
 	```
 - 振動解析のみ
 	```bash
-	python fircm/sVIBmachine.py -d <出力ディレクトリ> -c <電荷>
+	# INIT_PATH_SEARCH_ON=False inside this script
+	# -i : input trajectory (.traj) or structure (.xyz)
+	python fircm/sVIBmachine.py -d <directory_name> -c <charge> -m orbmol -i input.traj -rs result.csv
 	```
 
 詳細な設定は `fircm/default_config.py` を編集、または各スクリプト先頭のコメントアウト行で上書き可能です。
