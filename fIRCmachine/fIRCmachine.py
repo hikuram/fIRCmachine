@@ -266,7 +266,7 @@ def myCalculator(type, atoms, base_name):
         from orb_models.forcefield import pretrained
         from orb_models.forcefield.calculator import ORBCalculator
         from ase.calculators.mixing import LinearCombinationCalculator
-        from tblite.ase import TBLite
+        from dual_tblite_delta import DualTBLite
         orbff = pretrained.orb_v3_conservative_omol(
             device=g.DEVICE,
             precision="float64",   # "float32"/ "float32-highest"/ "float64"
@@ -274,9 +274,8 @@ def myCalculator(type, atoms, base_name):
         solvation = ("alpb", "water")
         acc = 0.2
         calc_mlip =  ORBCalculator(orbff, device=g.DEVICE)
-        calc_xtb_sol = TBLite(method="GFN2-xTB", charge=g.CHARGE, multiplicity=g.MULT, solvation=solvation, accuracy=acc, verbosity=0)
-        calc_xtb_vac = TBLite(method="GFN2-xTB", charge=g.CHARGE, multiplicity=g.MULT, accuracy=acc, verbosity=0)
-        calculator = LinearCombinationCalculator([calc_mlip, calc_xtb_sol, calc_xtb_vac], [1, 1, -1])
+        calc_delta = DualTBLite(method="GFN2-xTB", charge=g.CHARGE, multiplicity=g.MULT, solvation=solvation, accuracy=acc, verbosity=0)
+        calculator = LinearCombinationCalculator([calc_mlip, calc_delta], [1, -1])
 
     else:
         sys.exit("error: incorrect calc type")
@@ -711,6 +710,7 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
+
 
 
 
