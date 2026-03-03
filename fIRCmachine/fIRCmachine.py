@@ -274,8 +274,8 @@ def myCalculator(type, atoms, base_name):
         solvation = ("alpb", "water")
         acc = 0.2
         calc_mlip =  ORBCalculator(orbff, device=g.DEVICE)
-        calc_delta = DualTBLite(method="GFN2-xTB", charge=g.CHARGE, multiplicity=g.MULT, solvation=solvation, accuracy=acc, verbosity=0)
-        calculator = LinearCombinationCalculator([calc_mlip, calc_delta], [1, -1])
+        calc_delta = DualTBLite(method="GFN1-xTB", charge=g.CHARGE, multiplicity=g.MULT, solvation=solvation, accuracy=acc, verbosity=0)
+        calculator = LinearCombinationCalculator([calc_mlip, calc_delta], [1, 1])
 
     else:
         sys.exit("error: incorrect calc type")
@@ -710,6 +710,7 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
+
 
 
 
