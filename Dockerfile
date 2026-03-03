@@ -58,10 +58,8 @@ RUN git clone --depth 1 https://github.com/hikuram/redox_benchmark.git
 RUN pip3 install --no-deps -e redox_benchmark
 
 # alpb may require tblite>=0.5.0
-# tblite fork (build from source, install python bindings)
 RUN pip3 install meson ninja
-ARG TBLITE_REF=born_floor_test
-RUN git clone --depth 1 --branch ${TBLITE_REF} https://github.com/hikuram/tblite.git /opt/tblite
+RUN git clone --depth 1 https://github.com/tblite/tblite.git /opt/tblite
 WORKDIR /opt/tblite
 # Build + install tblite (and Python extension if enabled)
 RUN meson setup _build --prefix=/usr/local -Dpython=true \
