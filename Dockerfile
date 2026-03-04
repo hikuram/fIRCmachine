@@ -53,7 +53,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (others)
-RUN pip3 install pandas morfeus-ml ase rmsd sella orb-models cyipopt pydmf seaborn
+RUN pip3 install pandas morfeus-ml ase rmsd sella orb-models cyipopt pydmf
 RUN git clone --depth 1 https://github.com/hikuram/redox_benchmark.git
 RUN pip3 install --no-deps -e redox_benchmark
 
@@ -70,6 +70,19 @@ RUN pip3 install /opt/tblite/python
 RUN git clone --depth 1 https://github.com/hikuram/fIRCmachine.git /opt/fIRCmachine
 ENV PYTHONPATH="/opt/fIRCmachine/fircm:${PYTHONPATH}"
 
+# Install fonts and plotting tools
+RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ttf-mscorefonts-installer \
+    fontconfig && \
+    fc-cache -f -v && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir matplotlib seaborn && \
+    mkdir -p /root/.cache/matplotlib && \
+    python3 -c "import matplotlib.pyplot"
+    
 # Set working directory
 WORKDIR /workspace
 
