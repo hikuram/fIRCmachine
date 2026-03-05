@@ -53,7 +53,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (others)
-RUN pip3 install pandas morfeus-ml ase rmsd sella orb-models cyipopt pydmf
+RUN pip3 install orb-models==0.5.5
+RUN pip3 install pandas morfeus-ml ase rmsd sella cyipopt pydmf
 RUN git clone --depth 1 https://github.com/hikuram/redox_benchmark.git
 RUN pip3 install --no-deps -e redox_benchmark
 
