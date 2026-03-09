@@ -543,6 +543,7 @@ def vib_img(xyz_name):
     img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     #forces = img.get_forces()
+    electronic_energy = img.get_potential_energy()
     vib = Vibrations(img, name="vib_temp")
     vib.run()
     vib.summary(log=img_name+'_vibsummary.txt')
@@ -556,15 +557,14 @@ def vib_img(xyz_name):
     # Ideal-gas limit
     # Guess geometry='nonlinear', symmetrynumber=1
     # Use ignore_imag_modes=True
-    potentialenergy = img.get_potential_energy()
     vib_energies = vib.get_energies()
     
     thermo = IdealGasThermo(
-        vib_energies=vib_energies, potentialenergy=potentialenergy,
-        atoms=img, geometry='nonlinear', symmetrynumber=1, spin=(g.MULT-1)/1,
+        vib_energies=vib_energies, potentialenergy=electronic_energy,
+        atoms=img, geometry='nonlinear', symmetrynumber=1, spin=(g.MULT-1)/2,
         ignore_imag_modes=True
     )
-    energy_eV = vib.atoms.get_potential_energy()
+    energy_eV = electronic_energy
     zpe_eV = vib.get_zero_point_energy()  # Units: eV
     H_eV = thermo.get_enthalpy(temperature=298.15)
     G_eV = thermo.get_gibbs_energy(temperature=298.15, pressure=101325.0)
@@ -710,6 +710,7 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
+
 
 
 
