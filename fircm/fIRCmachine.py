@@ -595,13 +595,17 @@ def traj_to_xyz(traj, out_xyz_path):
         print(f"Warning: An error occurred while writing {out_xyz_path}: {e}")
 
 # Extract energies from trajectory to CSV
-def write_energies(traj_name, csv_name=None):
+def write_energies(traj_name, csv_name=None, energy_recalc=False):
     if not csv_name:
         csv_name = os.path.splitext(traj_name)[0]+"_energy.csv"
     images = read(traj_name, index=":")
     # traj: energies
     data = []
     for i, atoms in enumerate(images):
+        if energy_recalc:
+            #Ignore the file's energy, strictly recalculate
+            atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
+            atoms.calc = make_calculator(g.CALC_TYPE, atoms, "energy_recalc")
         try:
             energy_ev = atoms.get_potential_energy()
             energy_hartree = energy_ev * g.EV_TO_HARTREE
@@ -701,7 +705,11 @@ if __name__ == '__main__':
         run_initial_path_search()
         g.I_TRAJ = "DMF_final.traj" # ignores args.input
     elif not g.PRESERVE_CSV_ON:
-        write_energies(g.I_TRAJ, g.R_CSV)
+        if g.INIT_RECALC_MODE_ON:
+            #Ignore the file's energy, strictly recalculate
+            write_energies(g.I_TRAJ, g.R_CSV, energy_recalc=True)
+        else:
+            write_energies(g.I_TRAJ, g.R_CSV)
     process_local_maxima()
     
     # Finish
@@ -710,11 +718,3 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
-
-
-
-
-
-
-
-
