@@ -9,6 +9,7 @@ from fIRCmachine import *
 
 # Overwrite global variables (all uppercase)
 g.INIT_PATH_SEARCH_ON = False
+g.INIT_RECALC_MODE_ON = False
 g.REFINE_INPUT_ON = False
 g.USE_SELLA_IN_OPT = False
 g.TSOPT_ON = False
@@ -82,7 +83,11 @@ if __name__ == '__main__':
         run_initial_path_search()
         g.I_TRAJ = "DMF_final.traj" # ignores args.input
     elif not g.PRESERVE_CSV_ON:
-        write_energies(g.I_TRAJ, g.R_CSV)
+        if g.INIT_RECALC_MODE_ON:
+            #Ignore the file's energy, strictly recalculate
+            write_energies(g.I_TRAJ, g.R_CSV, energy_recalc=True)
+        else:
+            write_energies(g.I_TRAJ, g.R_CSV)
     process_local_maxima()
     
     # Finish
@@ -91,4 +96,3 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
-
