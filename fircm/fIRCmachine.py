@@ -348,7 +348,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     mxflx = DirectMaxFlux(ref_images, coefs=coefs, nmove=g.NMOVE, update_teval=g.UPDATE_TEVAL)
     # Set up calculator
     for img in mxflx.images:
-        img.info = {"charge": g.CHARGE, "spin": g.MULT}
+        img.info["charge"] = g.CHARGE
+        img.info["spin"] = g.MULT
         img.calc = make_calculator(g.CALC_TYPE, img, "DMF_init")
     # Solve
     mxflx.add_ipopt_options({'output_file': 'DMF_ipopt.out'})
@@ -364,7 +365,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     for img in mxflx.images:
         # Copy atoms and info
         atoms = Atoms(positions=img.get_positions(), numbers=img.get_atomic_numbers())
-        atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
+        atoms.info["charge"] = g.CHARGE
+        atoms.info["spin"] = g.MULT
         atoms.calc = make_calculator(g.CALC_TYPE, atoms, "DMF_final")
         try:
             # Explicitly calculate energy
@@ -393,7 +395,8 @@ def write_line(txtfile_name, txt):
 def opt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up an ASE optimizer (L-BFGS)
     opt = LBFGS(img, trajectory=img_name+"_opt.traj", logfile=img_name+"_opt.log")
@@ -410,7 +413,8 @@ def opt_img(xyz_name: str) -> Atoms:
 def opt_sella_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella Dynamics object (order=0)
     dyn = Sella(
@@ -430,7 +434,8 @@ def opt_sella_img(xyz_name: str) -> Atoms:
 def tsopt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella Dynamics object
     dyn = Sella(
@@ -450,7 +455,8 @@ def tsopt_img(xyz_name: str) -> Atoms:
 def irc_img(xyz_name: str) -> List[float]:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella IRC object
     opt = IRC(img, trajectory=img_name+'_irc.traj',
@@ -594,26 +600,42 @@ def traj_to_xyz(traj, out_xyz_path):
     except Exception as e:
         print(f"Warning: An error occurred while writing {out_xyz_path}: {e}")
 
-# Extract energies from trajectory to CSV
 def write_energies(traj_name, csv_name=None, energy_recalc=False):
     if not csv_name:
-        csv_name = os.path.splitext(traj_name)[0]+"_energy.csv"
-    images = read(traj_name, index=":")
-    # traj: energies
+        csv_name = os.path.splitext(traj_name)[0] + "_energy.csv"
     data = []
-    for i, atoms in enumerate(images):
-        if energy_recalc:
-            #Ignore the file's energy, strictly recalculate
-            atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
-            atoms.calc = make_calculator(g.CALC_TYPE, atoms, "energy_recalc")
-        try:
-            energy_ev = atoms.get_potential_energy()
-            energy_hartree = energy_ev * g.EV_TO_HARTREE
-            energy_kcal = energy_ev * g.EV_TO_KCAL_MOL
-            data.append([i, energy_ev, energy_hartree, energy_kcal])
-        except Exception as e:
-            print(f"Warning: missing value for {traj_name}.traj atom {i}: {e}")
-            data.append([i, None, None, None])
+    tmp_name = traj_name + ".tmp"
+    if energy_recalc:
+        traj_out = Trajectory(tmp_name, "w")
+    else:
+        traj_out = None
+
+    traj_in = Trajectory(traj_name)
+    try:
+        for i, atoms in enumerate(traj_in):
+            if energy_recalc:
+                atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
+                atoms.calc = make_calculator(g.CALC_TYPE, atoms, "energy_recalc")
+                #atoms.calc = make_calculator(g.CALC_TYPE, atoms, f"energy_recalc_{i}")
+            try:
+                energy_ev = atoms.get_potential_energy()
+                energy_hartree = energy_ev * g.EV_TO_HARTREE
+                energy_kcal = energy_ev * g.EV_TO_KCAL_MOL
+                data.append([i, energy_ev, energy_hartree, energy_kcal])
+            except Exception as e:
+                print(f"Warning: missing value for {traj_name} frame {i}: {e}")
+                data.append([i, None, None, None])
+            if energy_recalc:
+                traj_out.write(atoms)
+                atoms.calc = None
+                del atoms
+    finally:
+        traj_in.close()
+        if traj_out is not None:
+            traj_out.close()
+    if energy_recalc:
+        os.replace(tmp_name, traj_name)
+        
     df = pd.DataFrame(data,
         columns=["# image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"]
         )
