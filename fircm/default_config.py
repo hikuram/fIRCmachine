@@ -1,6 +1,7 @@
 
 # Workflow flags
 INIT_PATH_SEARCH_ON: bool = True
+INIT_RECALC_MODE_ON: bool = False
 REFINE_INPUT_ON: bool = True
 USE_SELLA_IN_OPT: bool = False
 TSOPT_ON: bool = True
@@ -33,3 +34,4 @@ IRC_DX: float = 0.08
 # Physical constants
 EV_TO_KCAL_MOL: float = 23.0605
 EV_TO_HARTREE: float = 1 / 27.2114  # approx. 0.0367493
+
