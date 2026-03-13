@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import shutil
 import argparse
 from datetime import datetime
@@ -122,7 +123,8 @@ def process_local_maxima():
     g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
     
     # Sub-iteration 2: include endpoints
-    t_vib_sum_start = timepfc()
+    t_vib_sum = 0
+    t_refine_sum = 0
     for i, peak_file in enumerate(peak_files):
         base_name = os.path.splitext(peak_file)[0]
         idx = int(base_name.split('_')[-1].split('.')[0]) # index of local maximum
@@ -138,6 +140,7 @@ def process_local_maxima():
             except Exception as e:
                 print(f"Warning: Vibrations failed: {e}")
             t_vib = timepfc() - t_vib_start
+            t_vib_sum += t_vib
             write_result(
                 ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 'G [kcal/mol]'],
                 [t_vib]+vib_result
@@ -176,81 +179,152 @@ def process_local_maxima():
         # ==
         
         # == Refinement ===================
-        # Under construction
-        # Write results
-            #    df_new.at[df_new.index[idx], 'energy_DFT [eV]'] = np.nan #energy_eV
-            #    df_new.at[df_new.index[idx], 'energy_DFT [kcal/mol]'] = np.nan #energy_eV * g.EV_TO_KCAL_MOL
-            #    df_new.at[df_new.index[idx], 'time_DFT [s]'] = np.nan #t_dft
+        if g.REFINE_ENERGY_ON:
+            t_refine_start = timepfc()
+            try:
+                refine_result = refine_energy_img(base_name + ".xyz", refine_type=g.REFINE_CALC_TYPE)
+                energy_ref_eV, energy_ref_kcal = refine_result
+            except Exception as e:
+                print(f"Warning: refinement failed: {e}")
+                energy_ref_eV = None
+                energy_ref_kcal = None
+
+            t_refine = timepfc() - t_refine_start
+            t_refine_sum += t_refine
+            write_result(
+                ['time_refine [s]', 'energy_refine [eV]', 'energy_refine [kcal/mol]'],
+                [t_refine, energy_ref_eV, energy_ref_kcal]
+            )
+
+            if (
+                'G [kcal/mol]' in df_new.columns
+                and 'energy [kcal/mol]' in df_new.columns
+                and pd.notna(df_new.at[df_new.index[idx], 'G [kcal/mol]'])
+                and pd.notna(df_new.at[df_new.index[idx], 'energy [kcal/mol]'])
+            ):
+                thermal_corr_G = (
+                    df_new.at[df_new.index[idx], 'G [kcal/mol]']
+                    - df_new.at[df_new.index[idx], 'energy [kcal/mol]']
+                )
+                G_refine_kcal = energy_ref_kcal + thermal_corr_G
+                write_result('G_refine [kcal/mol] (HL//LL)', G_refine_kcal)
+                
+            print(f"refinement {t_refine} sec")
         # ==
         
-    t_vib_sum = timepfc() - t_vib_sum_start
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
+    txt = f"* Refinement_Total      | {t_refine_sum:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
+
+# PySCF config cache
+_PYSCF_CONFIG_CACHE = None
+_PYSCF_PROFILE_CACHE = {}
+
+def load_pyscf_config():
+    global _PYSCF_CONFIG_CACHE
+    if _PYSCF_CONFIG_CACHE is None:
+        default_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyscf_config.json")
+        config_path = getattr(g, "PYSCF_CONFIG_FILE", default_path)
+        with open(config_path, "r", encoding="utf-8") as f:
+            _PYSCF_CONFIG_CACHE = json.load(f)
+    return _PYSCF_CONFIG_CACHE
+
+def get_pyscf_profile(calc_type):
+    global _PYSCF_PROFILE_CACHE
+    if calc_type in _PYSCF_PROFILE_CACHE:
+        return _PYSCF_PROFILE_CACHE[calc_type]
+
+    config = load_pyscf_config()
+    if calc_type not in config:
+        raise KeyError(f"Missing PySCF profile in config: {calc_type}")
+
+    profile = dict(config[calc_type])
+    profile["calc_type"] = calc_type
+    profile["is_3c"] = str(profile.get("xc", "")).endswith("3c")
+    _PYSCF_PROFILE_CACHE[calc_type] = profile
+    return profile
+
+def build_pyscf_method_common(atoms, base_name, profile):
+    from pyscf import M
+    from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
+
+    mol = M(
+        atom=ase_atoms_to_pyscf(atoms),
+        basis=profile.get("basis"),
+        ecp=profile.get("ecp"),
+        charge=g.CHARGE,
+        spin=g.MULT - 1,
+        output=base_name + '_pyscf.log',
+        verbose=profile.get("verbose", 4)
+    )
+    mf = mol.RKS(
+        xc=profile["xc"],
+        disp=profile.get("disp"),
+        conv_tol=profile.get("conv_tol", 6e-10),
+        max_cycle=profile.get("max_cycle", 400)
+    )
+
+    if profile.get("with_solvent", False):
+        solvent_model = str(profile.get("solvent_model", "")).upper()
+        if solvent_model == "SMD":
+            mf = mf.SMD()
+        else:
+            raise NotImplementedError(f"Unsupported solvent model: {solvent_model}")
+        mf.with_solvent.solvent = profile.get("solvent", "water")
+        if profile.get("eps") is not None:
+            mf.with_solvent.eps = profile["eps"]
+
+    mf.grids.level = profile.get("grids_level", 5)
+    if hasattr(mf, "nlcgrids") and profile.get("nlcgrids_level") is not None:
+        mf.nlcgrids.level = profile.get("nlcgrids_level")
+
+    if g.DEVICE == "cuda":
+        cupy.get_default_memory_pool().free_all_blocks()
+        mf = mf.to_gpu()
+    return mf
+
+def build_pyscf_standard(atoms, base_name, profile):
+    from gpu4pyscf.tools.ase_interface import PySCF
+
+    mf = build_pyscf_method_common(atoms, base_name, profile)
+    return PySCF(method=mf)
+
+def build_pyscf_3c(atoms, base_name, profile):
+    from redox.utils.pyscf_utils import PySCFCalculator, build_3c_method
+
+    config = {}
+    config["xc"] = profile["xc"]
+    config["charge"] = g.CHARGE
+    config["spin"] = g.MULT - 1
+    config["verbose"] = profile.get("verbose", 4)
+    config["output"] = base_name + '_pyscf.log'
+    config["inputfile"] = [
+        (ele, coord) for ele, coord in zip(atoms.get_chemical_symbols(), atoms.get_positions())
+    ]
+    if profile.get("with_solvent", False):
+        config["with_solvent"] = True
+        config["solvent"] = {
+            "method": profile.get("solvent_model", "SMD"),
+            "eps": profile.get("eps", 78.3553),
+            "solvent": profile.get("solvent", "water")
+        }
+
+    if not str(config["xc"]).endswith("3c"):
+        raise NotImplementedError("When a 3c profile is specified, the xc string must end with '3c'.")
+
+    mf = build_3c_method(config)
+    return PySCFCalculator(mf, xc_3c=profile["xc"])
 
 # Set calculator
 def make_calculator(type, atoms, base_name):
     # PySCF
-    if type == "pyscf":
-        from pyscf import M
-        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-        from gpu4pyscf.tools.ase_interface import PySCF
-        # PySCF configuration
-        mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-SVP",
-            ecp="def2-SVP", charge=g.CHARGE, spin=g.MULT-1,
-            output=base_name+'_pyscf.log', verbose=4
-        )
-        mf = mol.RKS(xc="b3lyp", disp="d3bj", conv_tol=6e-10, max_cycle=400)
-        mf = mf.SMD()
-        mf.with_solvent.solvent = "water"
-        #mf.with_solvent.eps = 78.3553  # water
-        mf.grids.level = 5
-        mf.nlcgrids.level = 4
-        if g.DEVICE == "cuda":
-            cupy.get_default_memory_pool().free_all_blocks()
-            mf = mf.to_gpu()
-        calculator = PySCF(method=mf)
-        
-    elif type == "pyscf_3c":
-        from pyscf import M
-        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-        from gpu4pyscf.tools.ase_interface import PySCF
-        from redox.utils.pyscf_utils import PySCFCalculator, build_3c_method
-        # Build method
-        config = {}
-        config["xc"] = "r2scan3c"
-        config["with_solvent"] = True
-        config["solvent"] = {"method": "SMD", "eps": 78.3553, "solvent": "water"}
-        config["charge"] = g.CHARGE
-        config["spin"] = g.MULT - 1
-        input_atoms_list = [(ele, coord) for ele, coord in zip(atoms.get_chemical_symbols(), atoms.get_positions())]
-        config["inputfile"] = input_atoms_list
-        config["verbose"] = 4
-        config["output"] = base_name+'_pyscf.log'
-        if "xc" in config and config["xc"].endswith("3c"):
-            xc_3c = config["xc"]
-            mf = build_3c_method(config)
+    if type in ["pyscf", "pyscf_high"]:
+        profile = get_pyscf_profile(type)
+        if profile["is_3c"]:
+            calculator = build_pyscf_3c(atoms, base_name, profile)
         else:
-            raise NotImplementedError("When 'pyscf_3c' is specified, the xc string must end with '3c'.")
-        calculator = PySCFCalculator(mf, xc_3c=xc_3c)
-        
-    # PySCF (fine)
-    elif type == "pyscf_fine":
-        from pyscf import M
-        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-        from gpu4pyscf.tools.ase_interface import PySCF
-        # PySCF configuration
-        mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-TZVPD",
-            ecp="def2-TZVPD", charge=g.CHARGE, spin=g.MULT-1,
-            output=base_name+'_pyscf.log', verbose=4
-        )
-        mf = mol.RKS(xc="wb97m-v", conv_tol=6e-10, max_cycle=400)
-        mf.grids.level = 5
-        mf.nlcgrids.level = 4
-        if g.DEVICE == "cuda":
-            cupy.get_default_memory_pool().free_all_blocks()
-            mf = mf.to_gpu()
-        calculator = PySCF(method=mf)
-        
+            calculator = build_pyscf_standard(atoms, base_name, profile)
+
     # orbmol
     elif type == "orbmol":
         from orb_models.forcefield import pretrained
@@ -280,6 +354,7 @@ def make_calculator(type, atoms, base_name):
     else:
         sys.exit("error: incorrect calc type")
     return calculator
+
 
 # Parse input trajectory
 from typing import List
@@ -499,6 +574,19 @@ def irc_img(xyz_name: str) -> List[float]:
     return [deltaE_irc0, deltaE_irc1]
 
 
+def refine_energy_img(xyz_name, refine_type="pyscf_high"):
+    img = read(xyz_name)
+    img_name = os.path.splitext(xyz_name)[0]
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
+
+    img.calc = make_calculator(refine_type, img, img_name + "_refine")
+    energy_eV = img.get_potential_energy()
+    energy_kcal = energy_eV * g.EV_TO_KCAL_MOL
+    img.calc = None
+
+    return [energy_eV, energy_kcal]
+
 # 
 def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
     freqs = vib.get_frequencies()
@@ -661,6 +749,8 @@ def finalize_run():
                 df["Delta H vs. reactant [kcal/mol]"] = df["H [kcal/mol]"] - df.loc[0, "H [kcal/mol]"]
             if df["G [kcal/mol]"].notna().any():
                 df["Delta G vs. reactant [kcal/mol]"] = df["G [kcal/mol]"] - df.loc[0, "G [kcal/mol]"]
+            if "G_refine [kcal/mol] (HL//LL)" in df.columns and df["G_refine [kcal/mol] (HL//LL)"].notna().any():
+                df["Delta G_refine vs. reactant [kcal/mol] (HL//LL)"] = df["G_refine [kcal/mol] (HL//LL)"] - df.loc[0, "G_refine [kcal/mol] (HL//LL)"]
             df.to_csv(g.R_CSV, index=False)
         except Exception as e:
             print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")

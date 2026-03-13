@@ -1,0 +1,56 @@
+{
+  "pyscf": {
+    "xc": "r2scan3c",
+    "with_solvent": true,
+    "solvent_model": "SMD",
+    "solvent": "water",
+    "with_df": true,
+    "auxbasis": "def2-universal-jfit",
+    "verbose": 4
+  },
+
+  "pyscf_high": {
+    "xc": "wb97m_v",
+    "basis": "def2-TZVPD",
+    "ecp": null,
+    "disp": null,
+    "conv_tol": 1e-10,
+    "max_cycle": 400,
+    "grids_level": 5,
+    "nlcgrids_level": 4,
+    "with_solvent": true,
+    "solvent_model": "SMD",
+    "solvent": "water",
+    "with_df": true,
+    "auxbasis": "def2-universal-jkfit",
+    "verbose": 4
+  },
+
+  "presets": {
+    "L1_fast": {
+      "xc": "b97-3c",
+      "with_df": true,
+      "auxbasis": "def2-universal-jfit",
+      "with_solvent": true,
+      "solvent_model": "SMD",
+      "solvent": "water"
+    },
+    "L2_standard": {
+      "xc": "r2scan3c",
+      "with_df": true,
+      "auxbasis": "def2-universal-jfit",
+      "with_solvent": true,
+      "solvent_model": "SMD",
+      "solvent": "water"
+    },
+    "L3_high": {
+      "xc": "wb97m_v",
+      "basis": "def2-TZVPD",
+      "with_df": true,
+      "auxbasis": "def2-universal-jkfit",
+      "grids_level": 5,
+      "nlcgrids_level": 4,
+      "conv_tol": 1e-10
+    }
+  }
+}

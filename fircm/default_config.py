@@ -7,6 +7,7 @@ USE_SELLA_IN_OPT: bool = False
 TSOPT_ON: bool = True
 IRC_ON: bool = True
 VIB_ON: bool = True
+REFINE_ENERGY_ON: bool = True
 OTHER_JOBS_EXAMPLE_ON: bool = False
 WRITE_SUGGESTIONS_ON: bool = True
 SUGGESTIONS: list = []
