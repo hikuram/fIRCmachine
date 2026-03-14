@@ -22,7 +22,8 @@ import cupy
 import default_config as g
 from instant_plot import instant_plot
 from dmf import DirectMaxFlux, interpolate_fbenm
-from sella import Sella, Constraints, IRC
+from sella import Sella, Constraints
+from sella_ext_AdaptiveIRC import AdaptiveIRC
 
 # Overwrite global variables
 #g.INIT_PATH_SEARCH_ON = False
@@ -534,9 +535,10 @@ def irc_img(xyz_name: str) -> List[float]:
     img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella IRC object
-    opt = IRC(img, trajectory=img_name+'_irc.traj',
-        logfile=img_name+"_irc.log",
-        dx=g.IRC_DX, eta=1e-4, gamma=0.4
+    opt = AdaptiveIRC(
+        img, trajectory=img_name+'_irc.traj', logfile=img_name+"_irc.log",
+        dx=g.IRC_DX_MAX, max_dx=g.IRC_DX_MAX, min_dx=g.IRC_DX_MIN,
+        eta=1e-4, gamma=0.4
     )
     opt.run(fmax=1e-2, steps=1000, direction='forward')
     write(img_name+"_forward.xyz", img)
