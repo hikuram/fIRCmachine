@@ -17,7 +17,8 @@ CURRENT_DIR: str = "."
 TIME_LOG_NAME: str = "timing.log"
 
 # Calculation settings
-CALC_TYPE: str = "orbmol"  # "orbmol", "orbmol+alpb", "pyscf", "pyscf_fine", "pyscf_3c"
+CALC_TYPE: str = "orbmol"  # "orbmol", "orbmol+alpb", "pyscf", "pyscf_high"
+REFINE_CALC_TYPE: str = "pyscf_high"
 DEVICE: str = "cuda"  # "cuda" or "cpu"
 
 # Model settings
