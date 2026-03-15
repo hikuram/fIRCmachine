@@ -854,7 +854,7 @@ if __name__ == '__main__':
     t_total_start = timepfc()
     if g.INIT_PATH_SEARCH_ON:
         if not os.path.exists(args.directory):
-            os.mkdir(args.directory)
+            os.makedirs(args.directory, exist_ok=True)
         else:
             print(f"canceled: {args.directory} already exists")
             sys.exit()
@@ -867,7 +867,7 @@ if __name__ == '__main__':
             print(f"canceled: cannot load {args.input}")
             sys.exit()
         if not os.path.exists(args.directory):
-            os.mkdir(args.directory)
+            os.makedirs(args.directory, exist_ok=True)
         input_name = os.path.basename(args.input)
         if not os.path.exists(args.directory+"/"+input_name):
             shutil.copy(args.input, args.directory)
