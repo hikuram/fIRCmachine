@@ -24,6 +24,7 @@ from instant_plot import instant_plot
 from dmf import DirectMaxFlux, interpolate_fbenm
 from sella import Sella, Constraints
 from sella_ext_AdaptiveIRC import AdaptiveIRC
+from pyscf_exporter import export_pyscf_single_point
 
 # Overwrite global variables
 #g.INIT_PATH_SEARCH_ON = False
@@ -585,8 +586,13 @@ def refine_energy_img(xyz_name, refine_type="pyscf_high"):
     img.calc = make_calculator(refine_type, img, img_name + "_refine")
     energy_eV = img.get_potential_energy()
     energy_kcal = energy_eV * g.EV_TO_KCAL_MOL
+    
+    try:
+        export_pyscf_single_point(atoms, prefix=img_name+"_refine")
+    except Exception as e:
+        print(f"Warning: export_pyscf_single_point failed: {e}")
+    
     img.calc = None
-
     return [energy_eV, energy_kcal]
 
 # 
