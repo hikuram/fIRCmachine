@@ -631,6 +631,58 @@ def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
     print(f"[Info] Wrote {len(images)} frames to {output}")
 
 
+def get_symmetry_info(atoms):
+    """
+    Analyze the point group of the molecule using PySCF and return
+    the geometry type ('linear'/'nonlinear') and symmetry number (sigma)
+    required for ASE's IdealGasThermo.
+    """
+    import re
+    from pyscf import symm
+    from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
+    
+    if len(atoms) == 1:
+        return 'monatomic', 1
+        
+    try:
+        # Convert ASE Atoms to PySCF format for point group analysis
+        pyscf_atom = ase_atoms_to_pyscf(atoms)
+        pg, _ = symm.analyze(pyscf_atom)
+    except Exception as e:
+        print(f"Warning: Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
+        return 'nonlinear', 1
+        
+    # Determine if the molecule is linear
+    geometry = 'linear' if pg in ['Cinfv', 'Dinfh'] else 'nonlinear'
+    
+    # Calculate symmetry number from the Point Group symbol
+    sym_num = 1
+    if pg == 'Cinfv':
+        sym_num = 1
+    elif pg == 'Dinfh':
+        sym_num = 2
+    elif pg in ['T', 'Td', 'Th']:
+        sym_num = 12
+    elif pg in ['O', 'Oh']:
+        sym_num = 24
+    elif pg in ['I', 'Ih']:
+        sym_num = 60
+    else:
+        # Parse C_n, D_n, S_n groups (e.g., "C3v" -> letter="C", n=3)
+        m = re.search(r'^([CDS])(\d+)', pg)
+        if m:
+            letter = m.group(1)
+            n = int(m.group(2))
+            if letter == 'C':
+                sym_num = n
+            elif letter == 'D':
+                sym_num = 2 * n
+            elif letter == 'S':
+                sym_num = n // 2
+                
+    print(f"  [Thermo] Detected Point Group: {pg} -> geometry='{geometry}', symmetrynumber={sym_num}")
+    return geometry, sym_num
+
 # Run vibrations and thermodynamics
 def vib_img(xyz_name):
     img = read(xyz_name)
@@ -651,13 +703,14 @@ def vib_img(xyz_name):
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
 
     # Ideal-gas limit
-    # Guess geometry='nonlinear', symmetrynumber=1
     # Use ignore_imag_modes=True
     vib_energies = vib.get_energies()
+    # Dynamically obtain symmetry and geometry via PySCF
+    geom_type, sym_num = get_symmetry_info(img)
     
     thermo = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=electronic_energy,
-        atoms=img, geometry='nonlinear', symmetrynumber=1, spin=(g.MULT-1)/2,
+        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
         ignore_imag_modes=True
     )
     energy_eV = electronic_energy
