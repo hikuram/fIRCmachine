@@ -588,7 +588,7 @@ def refine_energy_img(xyz_name, refine_type="pyscf_high"):
     energy_kcal = energy_eV * g.EV_TO_KCAL_MOL
     
     try:
-        export_pyscf_single_point(atoms, prefix=img_name+"_refine")
+        export_pyscf_single_point(img, prefix=img_name+"_refine")
     except Exception as e:
         print(f"Warning: export_pyscf_single_point failed: {e}")
     
@@ -644,16 +644,24 @@ def get_symmetry_info(atoms):
     required for ASE's IdealGasThermo.
     """
     import re
-    from pyscf import symm
-    from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
+    from pyscf import gto
     
     if len(atoms) == 1:
         return 'monatomic', 1
         
     try:
-        # Convert ASE Atoms to PySCF format for point group analysis
-        pyscf_atom = ase_atoms_to_pyscf(atoms)
-        pg, _ = symm.analyze(pyscf_atom)
+        # Convert ASE Atoms to PySCF atom list format
+        atom_list = [[atom.symbol, atom.position] for atom in atoms]
+        
+        # Build a lightweight PySCF Mole object to detect symmetry
+        mol = gto.Mole()
+        mol.atom = atom_list
+        mol.basis = 'sto-3g'  # Dummy basis just to allow build() to pass
+        mol.symmetry = True
+        mol.verbose = 0       # Suppress PySCF output
+        mol.build()
+        
+        pg = mol.topgroup
     except Exception as e:
         print(f"Warning: Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
         return 'nonlinear', 1
@@ -688,6 +696,7 @@ def get_symmetry_info(atoms):
                 
     print(f"  [Thermo] Detected Point Group: {pg} -> geometry='{geometry}', symmetrynumber={sym_num}")
     return geometry, sym_num
+
 
 # Run vibrations and thermodynamics
 def vib_img(xyz_name):
