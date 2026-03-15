@@ -1,11 +1,13 @@
 
 # Workflow flags
 INIT_PATH_SEARCH_ON: bool = True
+INIT_RECALC_MODE_ON: bool = False
 REFINE_INPUT_ON: bool = True
 USE_SELLA_IN_OPT: bool = False
 TSOPT_ON: bool = True
 IRC_ON: bool = True
 VIB_ON: bool = True
+REFINE_ENERGY_ON: bool = True
 OTHER_JOBS_EXAMPLE_ON: bool = False
 WRITE_SUGGESTIONS_ON: bool = True
 SUGGESTIONS: list = []
@@ -15,7 +17,8 @@ CURRENT_DIR: str = "."
 TIME_LOG_NAME: str = "timing.log"
 
 # Calculation settings
-CALC_TYPE: str = "orbmol"  # "orbmol", "orbmol+alpb", "pyscf", "pyscf_fine", "pyscf_3c"
+CALC_TYPE: str = "orbmol"  # "orbmol", "orbmol+alpb", "pyscf", "pyscf_high"
+REFINE_CALC_TYPE: str = "pyscf_high"
 DEVICE: str = "cuda"  # "cuda" or "cpu"
 
 # Model settings
@@ -28,8 +31,10 @@ UPDATE_TEVAL: bool = False
 DMF_CONVERGENCE: str = "tight"
 # -Sella
 SELLA_INTERNAL: bool = True
-IRC_DX: float = 0.08
+IRC_DX_MAX: float = 0.12
+IRC_DX_MIN: float = 0.02
 
 # Physical constants
 EV_TO_KCAL_MOL: float = 23.0605
 EV_TO_HARTREE: float = 1 / 27.2114  # approx. 0.0367493
+

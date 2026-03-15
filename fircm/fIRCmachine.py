@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import shutil
 import argparse
 from datetime import datetime
@@ -21,7 +22,9 @@ import cupy
 import default_config as g
 from instant_plot import instant_plot
 from dmf import DirectMaxFlux, interpolate_fbenm
-from sella import Sella, Constraints, IRC
+from sella import Sella, Constraints
+from sella_ext_AdaptiveIRC import AdaptiveIRC
+from pyscf_exporter import export_pyscf_single_point
 
 # Overwrite global variables
 #g.INIT_PATH_SEARCH_ON = False
@@ -122,7 +125,8 @@ def process_local_maxima():
     g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
     
     # Sub-iteration 2: include endpoints
-    t_vib_sum_start = timepfc()
+    t_vib_sum = 0
+    t_refine_sum = 0
     for i, peak_file in enumerate(peak_files):
         base_name = os.path.splitext(peak_file)[0]
         idx = int(base_name.split('_')[-1].split('.')[0]) # index of local maximum
@@ -138,6 +142,7 @@ def process_local_maxima():
             except Exception as e:
                 print(f"Warning: Vibrations failed: {e}")
             t_vib = timepfc() - t_vib_start
+            t_vib_sum += t_vib
             write_result(
                 ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 'G [kcal/mol]'],
                 [t_vib]+vib_result
@@ -176,81 +181,152 @@ def process_local_maxima():
         # ==
         
         # == Refinement ===================
-        # Under construction
-        # Write results
-            #    df_new.at[df_new.index[idx], 'energy_DFT [eV]'] = np.nan #energy_eV
-            #    df_new.at[df_new.index[idx], 'energy_DFT [kcal/mol]'] = np.nan #energy_eV * g.EV_TO_KCAL_MOL
-            #    df_new.at[df_new.index[idx], 'time_DFT [s]'] = np.nan #t_dft
+        if g.REFINE_ENERGY_ON:
+            t_refine_start = timepfc()
+            try:
+                refine_result = refine_energy_img(base_name + ".xyz", refine_type=g.REFINE_CALC_TYPE)
+                energy_ref_eV, energy_ref_kcal = refine_result
+            except Exception as e:
+                print(f"Warning: refinement failed: {e}")
+                energy_ref_eV = None
+                energy_ref_kcal = None
+
+            t_refine = timepfc() - t_refine_start
+            t_refine_sum += t_refine
+            write_result(
+                ['time_refine [s]', 'energy_refine [eV]', 'energy_refine [kcal/mol]'],
+                [t_refine, energy_ref_eV, energy_ref_kcal]
+            )
+
+            if (
+                'G [kcal/mol]' in df_new.columns
+                and 'energy [kcal/mol]' in df_new.columns
+                and pd.notna(df_new.at[df_new.index[idx], 'G [kcal/mol]'])
+                and pd.notna(df_new.at[df_new.index[idx], 'energy [kcal/mol]'])
+            ):
+                thermal_corr_G = (
+                    df_new.at[df_new.index[idx], 'G [kcal/mol]']
+                    - df_new.at[df_new.index[idx], 'energy [kcal/mol]']
+                )
+                G_refine_kcal = energy_ref_kcal + thermal_corr_G
+                write_result('G_refine [kcal/mol] (HL//LL)', G_refine_kcal)
+                
+            print(f"refinement {t_refine} sec")
         # ==
         
-    t_vib_sum = timepfc() - t_vib_sum_start
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
+    txt = f"* Refinement_Total      | {t_refine_sum:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
+
+# PySCF config cache
+_PYSCF_CONFIG_CACHE = None
+_PYSCF_PROFILE_CACHE = {}
+
+def load_pyscf_config():
+    global _PYSCF_CONFIG_CACHE
+    if _PYSCF_CONFIG_CACHE is None:
+        default_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyscf_config.json")
+        config_path = getattr(g, "PYSCF_CONFIG_FILE", default_path)
+        with open(config_path, "r", encoding="utf-8") as f:
+            _PYSCF_CONFIG_CACHE = json.load(f)
+    return _PYSCF_CONFIG_CACHE
+
+def get_pyscf_profile(calc_type):
+    global _PYSCF_PROFILE_CACHE
+    if calc_type in _PYSCF_PROFILE_CACHE:
+        return _PYSCF_PROFILE_CACHE[calc_type]
+
+    config = load_pyscf_config()
+    if calc_type not in config:
+        raise KeyError(f"Missing PySCF profile in config: {calc_type}")
+
+    profile = dict(config[calc_type])
+    profile["calc_type"] = calc_type
+    profile["is_3c"] = str(profile.get("xc", "")).endswith("3c")
+    _PYSCF_PROFILE_CACHE[calc_type] = profile
+    return profile
+
+def build_pyscf_method_common(atoms, base_name, profile):
+    from pyscf import M
+    from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
+
+    mol = M(
+        atom=ase_atoms_to_pyscf(atoms),
+        basis=profile.get("basis"),
+        ecp=profile.get("ecp"),
+        charge=g.CHARGE,
+        spin=g.MULT - 1,
+        output=base_name + '_pyscf.log',
+        verbose=profile.get("verbose", 4)
+    )
+    mf = mol.RKS(
+        xc=profile["xc"],
+        disp=profile.get("disp"),
+        conv_tol=profile.get("conv_tol", 6e-10),
+        max_cycle=profile.get("max_cycle", 400)
+    )
+
+    if profile.get("with_solvent", False):
+        solvent_model = str(profile.get("solvent_model", "")).upper()
+        if solvent_model == "SMD":
+            mf = mf.SMD()
+        else:
+            raise NotImplementedError(f"Unsupported solvent model: {solvent_model}")
+        mf.with_solvent.solvent = profile.get("solvent", "water")
+        if profile.get("eps") is not None:
+            mf.with_solvent.eps = profile["eps"]
+
+    mf.grids.level = profile.get("grids_level", 5)
+    if hasattr(mf, "nlcgrids") and profile.get("nlcgrids_level") is not None:
+        mf.nlcgrids.level = profile.get("nlcgrids_level")
+
+    if g.DEVICE == "cuda":
+        cupy.get_default_memory_pool().free_all_blocks()
+        mf = mf.to_gpu()
+    return mf
+
+def build_pyscf_standard(atoms, base_name, profile):
+    from gpu4pyscf.tools.ase_interface import PySCF
+
+    mf = build_pyscf_method_common(atoms, base_name, profile)
+    return PySCF(method=mf)
+
+def build_pyscf_3c(atoms, base_name, profile):
+    from redox.utils.pyscf_utils import PySCFCalculator, build_3c_method
+
+    config = {}
+    config["xc"] = profile["xc"]
+    config["charge"] = g.CHARGE
+    config["spin"] = g.MULT - 1
+    config["verbose"] = profile.get("verbose", 4)
+    config["output"] = base_name + '_pyscf.log'
+    config["inputfile"] = [
+        (ele, coord) for ele, coord in zip(atoms.get_chemical_symbols(), atoms.get_positions())
+    ]
+    if profile.get("with_solvent", False):
+        config["with_solvent"] = True
+        config["solvent"] = {
+            "method": profile.get("solvent_model", "SMD"),
+            "eps": profile.get("eps", 78.3553),
+            "solvent": profile.get("solvent", "water")
+        }
+
+    if not str(config["xc"]).endswith("3c"):
+        raise NotImplementedError("When a 3c profile is specified, the xc string must end with '3c'.")
+
+    mf = build_3c_method(config)
+    return PySCFCalculator(mf, xc_3c=profile["xc"])
 
 # Set calculator
 def make_calculator(type, atoms, base_name):
     # PySCF
-    if type == "pyscf":
-        from pyscf import M
-        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-        from gpu4pyscf.tools.ase_interface import PySCF
-        # PySCF configuration
-        mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-SVP",
-            ecp="def2-SVP", charge=g.CHARGE, spin=g.MULT-1,
-            output=base_name+'_pyscf.log', verbose=4
-        )
-        mf = mol.RKS(xc="b3lyp", disp="d3bj", conv_tol=6e-10, max_cycle=400)
-        mf = mf.SMD()
-        mf.with_solvent.solvent = "water"
-        #mf.with_solvent.eps = 78.3553  # water
-        mf.grids.level = 5
-        mf.nlcgrids.level = 4
-        if g.DEVICE == "cuda":
-            cupy.get_default_memory_pool().free_all_blocks()
-            mf = mf.to_gpu()
-        calculator = PySCF(method=mf)
-        
-    elif type == "pyscf_3c":
-        from pyscf import M
-        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-        from gpu4pyscf.tools.ase_interface import PySCF
-        from redox.utils.pyscf_utils import PySCFCalculator, build_3c_method
-        # Build method
-        config = {}
-        config["xc"] = "r2scan3c"
-        config["with_solvent"] = True
-        config["solvent"] = {"method": "SMD", "eps": 78.3553, "solvent": "water"}
-        config["charge"] = g.CHARGE
-        config["spin"] = g.MULT - 1
-        input_atoms_list = [(ele, coord) for ele, coord in zip(atoms.get_chemical_symbols(), atoms.get_positions())]
-        config["inputfile"] = input_atoms_list
-        config["verbose"] = 4
-        config["output"] = base_name+'_pyscf.log'
-        if "xc" in config and config["xc"].endswith("3c"):
-            xc_3c = config["xc"]
-            mf = build_3c_method(config)
+    if type in ["pyscf", "pyscf_high"]:
+        profile = get_pyscf_profile(type)
+        if profile["is_3c"]:
+            calculator = build_pyscf_3c(atoms, base_name, profile)
         else:
-            raise NotImplementedError("When 'pyscf_3c' is specified, the xc string must end with '3c'.")
-        calculator = PySCFCalculator(mf, xc_3c=xc_3c)
-        
-    # PySCF (fine)
-    elif type == "pyscf_fine":
-        from pyscf import M
-        from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-        from gpu4pyscf.tools.ase_interface import PySCF
-        # PySCF configuration
-        mol = M(atom=ase_atoms_to_pyscf(atoms), basis="def2-TZVPD",
-            ecp="def2-TZVPD", charge=g.CHARGE, spin=g.MULT-1,
-            output=base_name+'_pyscf.log', verbose=4
-        )
-        mf = mol.RKS(xc="wb97m-v", conv_tol=6e-10, max_cycle=400)
-        mf.grids.level = 5
-        mf.nlcgrids.level = 4
-        if g.DEVICE == "cuda":
-            cupy.get_default_memory_pool().free_all_blocks()
-            mf = mf.to_gpu()
-        calculator = PySCF(method=mf)
-        
+            calculator = build_pyscf_standard(atoms, base_name, profile)
+
     # orbmol
     elif type == "orbmol":
         from orb_models.forcefield import pretrained
@@ -280,6 +356,7 @@ def make_calculator(type, atoms, base_name):
     else:
         sys.exit("error: incorrect calc type")
     return calculator
+
 
 # Parse input trajectory
 from typing import List
@@ -348,7 +425,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     mxflx = DirectMaxFlux(ref_images, coefs=coefs, nmove=g.NMOVE, update_teval=g.UPDATE_TEVAL)
     # Set up calculator
     for img in mxflx.images:
-        img.info = {"charge": g.CHARGE, "spin": g.MULT}
+        img.info["charge"] = g.CHARGE
+        img.info["spin"] = g.MULT
         img.calc = make_calculator(g.CALC_TYPE, img, "DMF_init")
     # Solve
     mxflx.add_ipopt_options({'output_file': 'DMF_ipopt.out'})
@@ -364,7 +442,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     for img in mxflx.images:
         # Copy atoms and info
         atoms = Atoms(positions=img.get_positions(), numbers=img.get_atomic_numbers())
-        atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
+        atoms.info["charge"] = g.CHARGE
+        atoms.info["spin"] = g.MULT
         atoms.calc = make_calculator(g.CALC_TYPE, atoms, "DMF_final")
         try:
             # Explicitly calculate energy
@@ -393,7 +472,8 @@ def write_line(txtfile_name, txt):
 def opt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up an ASE optimizer (L-BFGS)
     opt = LBFGS(img, trajectory=img_name+"_opt.traj", logfile=img_name+"_opt.log")
@@ -410,7 +490,8 @@ def opt_img(xyz_name: str) -> Atoms:
 def opt_sella_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella Dynamics object (order=0)
     dyn = Sella(
@@ -430,7 +511,8 @@ def opt_sella_img(xyz_name: str) -> Atoms:
 def tsopt_img(xyz_name: str) -> Atoms:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella Dynamics object
     dyn = Sella(
@@ -450,12 +532,14 @@ def tsopt_img(xyz_name: str) -> Atoms:
 def irc_img(xyz_name: str) -> List[float]:
     img = read(xyz_name)
     img_name = os.path.splitext(xyz_name)[0]
-    img.info = {"charge": g.CHARGE, "spin": g.MULT}
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella IRC object
-    opt = IRC(img, trajectory=img_name+'_irc.traj',
-        logfile=img_name+"_irc.log",
-        dx=g.IRC_DX, eta=1e-4, gamma=0.4
+    opt = AdaptiveIRC(
+        img, trajectory=img_name+'_irc.traj', logfile=img_name+"_irc.log",
+        dx=g.IRC_DX_MAX, max_dx=g.IRC_DX_MAX, min_dx=g.IRC_DX_MIN,
+        eta=1e-4, gamma=0.4
     )
     opt.run(fmax=1e-2, steps=1000, direction='forward')
     write(img_name+"_forward.xyz", img)
@@ -492,6 +576,24 @@ def irc_img(xyz_name: str) -> List[float]:
     
     return [deltaE_irc0, deltaE_irc1]
 
+
+def refine_energy_img(xyz_name, refine_type="pyscf_high"):
+    img = read(xyz_name)
+    img_name = os.path.splitext(xyz_name)[0]
+    img.info["charge"] = g.CHARGE
+    img.info["spin"] = g.MULT
+
+    img.calc = make_calculator(refine_type, img, img_name + "_refine")
+    energy_eV = img.get_potential_energy()
+    energy_kcal = energy_eV * g.EV_TO_KCAL_MOL
+    
+    try:
+        export_pyscf_single_point(img, prefix=img_name+"_refine")
+    except Exception as e:
+        print(f"Warning: export_pyscf_single_point failed: {e}")
+    
+    img.calc = None
+    return [energy_eV, energy_kcal]
 
 # 
 def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
@@ -535,6 +637,67 @@ def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
     print(f"[Info] Wrote {len(images)} frames to {output}")
 
 
+def get_symmetry_info(atoms):
+    """
+    Analyze the point group of the molecule using PySCF and return
+    the geometry type ('linear'/'nonlinear') and symmetry number (sigma)
+    required for ASE's IdealGasThermo.
+    """
+    import re
+    from pyscf import gto
+    
+    if len(atoms) == 1:
+        return 'monatomic', 1
+        
+    try:
+        # Convert ASE Atoms to PySCF atom list format
+        atom_list = [[atom.symbol, atom.position] for atom in atoms]
+        
+        # Build a lightweight PySCF Mole object to detect symmetry
+        mol = gto.Mole()
+        mol.atom = atom_list
+        mol.basis = 'sto-3g'  # Dummy basis just to allow build() to pass
+        mol.symmetry = True
+        mol.verbose = 0       # Suppress PySCF output
+        mol.build()
+        
+        pg = mol.topgroup
+    except Exception as e:
+        print(f"Warning: Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
+        return 'nonlinear', 1
+        
+    # Determine if the molecule is linear
+    geometry = 'linear' if pg in ['Cinfv', 'Dinfh'] else 'nonlinear'
+    
+    # Calculate symmetry number from the Point Group symbol
+    sym_num = 1
+    if pg == 'Cinfv':
+        sym_num = 1
+    elif pg == 'Dinfh':
+        sym_num = 2
+    elif pg in ['T', 'Td', 'Th']:
+        sym_num = 12
+    elif pg in ['O', 'Oh']:
+        sym_num = 24
+    elif pg in ['I', 'Ih']:
+        sym_num = 60
+    else:
+        # Parse C_n, D_n, S_n groups (e.g., "C3v" -> letter="C", n=3)
+        m = re.search(r'^([CDS])(\d+)', pg)
+        if m:
+            letter = m.group(1)
+            n = int(m.group(2))
+            if letter == 'C':
+                sym_num = n
+            elif letter == 'D':
+                sym_num = 2 * n
+            elif letter == 'S':
+                sym_num = n // 2
+                
+    print(f"  [Thermo] Detected Point Group: {pg} -> geometry='{geometry}', symmetrynumber={sym_num}")
+    return geometry, sym_num
+
+
 # Run vibrations and thermodynamics
 def vib_img(xyz_name):
     img = read(xyz_name)
@@ -555,13 +718,14 @@ def vib_img(xyz_name):
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
 
     # Ideal-gas limit
-    # Guess geometry='nonlinear', symmetrynumber=1
     # Use ignore_imag_modes=True
     vib_energies = vib.get_energies()
+    # Dynamically obtain symmetry and geometry via PySCF
+    geom_type, sym_num = get_symmetry_info(img)
     
     thermo = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=electronic_energy,
-        atoms=img, geometry='nonlinear', symmetrynumber=1, spin=(g.MULT-1)/2,
+        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
         ignore_imag_modes=True
     )
     energy_eV = electronic_energy
@@ -594,22 +758,42 @@ def traj_to_xyz(traj, out_xyz_path):
     except Exception as e:
         print(f"Warning: An error occurred while writing {out_xyz_path}: {e}")
 
-# Extract energies from trajectory to CSV
-def write_energies(traj_name, csv_name=None):
+def write_energies(traj_name, csv_name=None, energy_recalc=False):
     if not csv_name:
-        csv_name = os.path.splitext(traj_name)[0]+"_energy.csv"
-    images = read(traj_name, index=":")
-    # traj: energies
+        csv_name = os.path.splitext(traj_name)[0] + "_energy.csv"
     data = []
-    for i, atoms in enumerate(images):
-        try:
-            energy_ev = atoms.get_potential_energy()
-            energy_hartree = energy_ev * g.EV_TO_HARTREE
-            energy_kcal = energy_ev * g.EV_TO_KCAL_MOL
-            data.append([i, energy_ev, energy_hartree, energy_kcal])
-        except Exception as e:
-            print(f"Warning: missing value for {traj_name}.traj atom {i}: {e}")
-            data.append([i, None, None, None])
+    tmp_name = traj_name + ".tmp"
+    if energy_recalc:
+        traj_out = Trajectory(tmp_name, "w")
+    else:
+        traj_out = None
+
+    traj_in = Trajectory(traj_name)
+    try:
+        for i, atoms in enumerate(traj_in):
+            if energy_recalc:
+                atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
+                atoms.calc = make_calculator(g.CALC_TYPE, atoms, "energy_recalc")
+                #atoms.calc = make_calculator(g.CALC_TYPE, atoms, f"energy_recalc_{i}")
+            try:
+                energy_ev = atoms.get_potential_energy()
+                energy_hartree = energy_ev * g.EV_TO_HARTREE
+                energy_kcal = energy_ev * g.EV_TO_KCAL_MOL
+                data.append([i, energy_ev, energy_hartree, energy_kcal])
+            except Exception as e:
+                print(f"Warning: missing value for {traj_name} frame {i}: {e}")
+                data.append([i, None, None, None])
+            if energy_recalc:
+                traj_out.write(atoms)
+                atoms.calc = None
+                del atoms
+    finally:
+        traj_in.close()
+        if traj_out is not None:
+            traj_out.close()
+    if energy_recalc:
+        os.replace(tmp_name, traj_name)
+        
     df = pd.DataFrame(data,
         columns=["# image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"]
         )
@@ -635,6 +819,8 @@ def finalize_run():
                 df["Delta H vs. reactant [kcal/mol]"] = df["H [kcal/mol]"] - df.loc[0, "H [kcal/mol]"]
             if df["G [kcal/mol]"].notna().any():
                 df["Delta G vs. reactant [kcal/mol]"] = df["G [kcal/mol]"] - df.loc[0, "G [kcal/mol]"]
+            if "G_refine [kcal/mol] (HL//LL)" in df.columns and df["G_refine [kcal/mol] (HL//LL)"].notna().any():
+                df["Delta G_refine vs. reactant [kcal/mol] (HL//LL)"] = df["G_refine [kcal/mol] (HL//LL)"] - df.loc[0, "G_refine [kcal/mol] (HL//LL)"]
             df.to_csv(g.R_CSV, index=False)
         except Exception as e:
             print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
@@ -668,7 +854,7 @@ if __name__ == '__main__':
     t_total_start = timepfc()
     if g.INIT_PATH_SEARCH_ON:
         if not os.path.exists(args.directory):
-            os.mkdir(args.directory)
+            os.makedirs(args.directory, exist_ok=True)
         else:
             print(f"canceled: {args.directory} already exists")
             sys.exit()
@@ -681,7 +867,7 @@ if __name__ == '__main__':
             print(f"canceled: cannot load {args.input}")
             sys.exit()
         if not os.path.exists(args.directory):
-            os.mkdir(args.directory)
+            os.makedirs(args.directory, exist_ok=True)
         input_name = os.path.basename(args.input)
         if not os.path.exists(args.directory+"/"+input_name):
             shutil.copy(args.input, args.directory)
@@ -701,7 +887,11 @@ if __name__ == '__main__':
         run_initial_path_search()
         g.I_TRAJ = "DMF_final.traj" # ignores args.input
     elif not g.PRESERVE_CSV_ON:
-        write_energies(g.I_TRAJ, g.R_CSV)
+        if g.INIT_RECALC_MODE_ON:
+            #Ignore the file's energy, strictly recalculate
+            write_energies(g.I_TRAJ, g.R_CSV, energy_recalc=True)
+        else:
+            write_energies(g.I_TRAJ, g.R_CSV)
     process_local_maxima()
     
     # Finish
@@ -710,11 +900,3 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
-
-
-
-
-
-
-
-

@@ -8,30 +8,19 @@ from fIRCmachine import *
 
 
 # Overwrite global variables (all uppercase)
+# Workflow flags
 g.INIT_PATH_SEARCH_ON = False
+g.INIT_RECALC_MODE_ON = False
 g.REFINE_INPUT_ON = False
 g.USE_SELLA_IN_OPT = False
 g.TSOPT_ON = True
 g.IRC_ON = True
 g.VIB_ON = False
+g.REFINE_ENERGY_ON = False
 g.OTHER_JOBS_EXAMPLE_ON = False
-#g.WRITE_SUGGESTIONS_ON = True
-#g.SUGGESTIONS = []
-#g.SAVE_FIG_ON = True
-#g.PRESERVE_CSV_ON = False
-#g.CURRENT_DIR = "."
-#g.TIME_LOG_NAME = "timing.log"
-#g.CALC_TYPE = "orbmol" # orbmol, pyscf, or pyscf_fine
-#g.DEVICE = "cuda" # cuda or cpu
-#g.MULT = 1
-#g.NMOVE = 40
-#g.UPDATE_TEVAL = False
-#g.DMF_CONVERGENCE = "tight"
-#g.SELLA_INTERNAL = True
-#g.IRC_DX = 0.08
-#g.EV_TO_KCAL_MOL = 23.0605
-#g.EV_TO_HARTREE = 1 / 27.2114  # approx. 0.0367493
-
+g.WRITE_SUGGESTIONS_ON = True
+g.SAVE_FIG_ON = True
+g.PRESERVE_CSV_ON = False
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run IRC calculations with the input trajectory')
@@ -49,7 +38,7 @@ if __name__ == '__main__':
     t_total_start = timepfc()
     if g.INIT_PATH_SEARCH_ON:
         if not os.path.exists(args.directory):
-            os.mkdir(args.directory)
+            os.makedirs(args.directory, exist_ok=True)
         else:
             print(f"canceled: {args.directory} already exists")
             sys.exit()
@@ -62,7 +51,7 @@ if __name__ == '__main__':
             print(f"canceled: cannot load {args.input}")
             sys.exit()
         if not os.path.exists(args.directory):
-            os.mkdir(args.directory)
+            os.makedirs(args.directory, exist_ok=True)
         input_name = os.path.basename(args.input)
         if not os.path.exists(args.directory+"/"+input_name):
             shutil.copy(args.input, args.directory)
@@ -82,7 +71,11 @@ if __name__ == '__main__':
         run_initial_path_search()
         g.I_TRAJ = "DMF_final.traj" # ignores args.input
     elif not g.PRESERVE_CSV_ON:
-        write_energies(g.I_TRAJ, g.R_CSV)
+        if g.INIT_RECALC_MODE_ON:
+            #Ignore the file's energy, strictly recalculate
+            write_energies(g.I_TRAJ, g.R_CSV, energy_recalc=True)
+        else:
+            write_energies(g.I_TRAJ, g.R_CSV)
     process_local_maxima()
     
     # Finish
@@ -91,4 +84,3 @@ if __name__ == '__main__':
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
     print(f"finished at: {datetime.now()}")
-
