@@ -31,7 +31,8 @@ UPDATE_TEVAL: bool = False
 DMF_CONVERGENCE: str = "tight"
 # -Sella
 SELLA_INTERNAL: bool = True
-IRC_DX_MAX: float = 0.16
+IRC_DX_INIT: float = 0.06
+IRC_DX_MAX: float = 0.12
 IRC_DX_MIN: float = 0.01
 
 # Physical constants
