@@ -17,16 +17,17 @@ class AdaptiveIRC(IRC):
       to handle flat minima / numerical noise
     - discarded trial steps are NOT written to trajectory
     - the printed/logged step number follows accepted trajectory points
-
+    
     Tested with Sella 2.3.x
     Recommended base: Sella v2.3.5
     """
-    def __init__(self, *args, dx=0.06, max_dx=0.12, min_dx=0.01,
-                 shrink_factor=0.5, grow_factor=1.25, grow_after=3,
+    def __init__(self, *args, max_dx=0.12, min_dx=0.02,
+                 shrink_factor=0.5, grow_factor=1.25, grow_after=4,
                  dx_quantum=0.005, eig_tol=1e-5,
                  max_history=8, max_rollback=4,
                  rollback_factor=0.75, same_point_max_retries=1,
                  **kwargs):
+        kwargs.setdefault('dx', 0.04)
         super().__init__(*args, **kwargs)
         # Store the initial dx value
         self.initial_dx = self.dx
@@ -128,7 +129,7 @@ class AdaptiveIRC(IRC):
         self.dx = self._clip_round_dx(self.initial_dx)
         self.consecutive_successes = 0
         self.accepted_steps = 0
-        self.history = []
+        self.history = [self._snapshot_state()]
 
         direction = kwargs.get('direction', 'forward')
         msg = f"  [AdaptiveIRC] Starting new run (direction={direction}). Reset dx to {self.dx:.4f}\n"
@@ -143,11 +144,7 @@ class AdaptiveIRC(IRC):
         return self.pes.converged(self.fmax)[0] and (evals[0] > -self.eig_tol)
 
     def step(self):
-        # Baseline is the last accepted point
-        base_state = self._snapshot_state()
-
         same_point_retry_count = 0
-        rollback_depth = 0
 
         while True:
             trial_state = self._snapshot_state()
@@ -188,39 +185,36 @@ class AdaptiveIRC(IRC):
                         self._write_msg(retry_msg)
                         continue
 
-                # Next, roll back to older accepted points
-                rolled_back = False
-                max_depth = min(self.max_rollback, len(self.history))
-                while rollback_depth < max_depth:
-                    rollback_depth += 1
-                    hist_state = self.history[-rollback_depth]
+                # Next, roll back to older accepted points.
+                # Drop the current accepted state from history so that history[-1]
+                # always means the latest still-valid safe point.
+                if len(self.history) > 1 and self.max_rollback > 0:
+                    history_len_before = len(self.history)
+                    oldest_allowed_len = max(1, history_len_before - self.max_rollback)
 
-                    self._restore_state(hist_state)
+                    if len(self.history) > oldest_allowed_len:
+                        current_state = self.history.pop()
+                        hist_state = self.history[-1]
 
-                    old_dx = self.dx
-                    target_dx = min(hist_state['dx'], trial_state['dx'] * self.rollback_factor)
-                    new_dx = self._clip_round_dx(target_dx)
-                    self.consecutive_successes = 0
-                    same_point_retry_count = 0
+                        self._restore_state(hist_state)
 
-                    if new_dx < self.min_dx:
-                        new_dx = self.min_dx
-                    self.dx = new_dx
+                        old_dx = current_state['dx']
+                        target_dx = min(hist_state['dx'], trial_state['dx'] * self.rollback_factor)
+                        new_dx = self._clip_round_dx(target_dx)
+                        self.consecutive_successes = 0
+                        same_point_retry_count = 0
+                        self.dx = new_dx
 
-                    rb_msg = (
-                        f"  [AdaptiveIRC] Step {stepno:d}: rolling back {rollback_depth:d} "
-                        f"accepted step(s); dx {old_dx:.4f} -> {self.dx:.4f}.\n"
-                    )
-                    self._write_msg(rb_msg)
-
-                    rolled_back = True
-                    break
-
-                if rolled_back:
-                    continue
+                        rollback_steps = history_len_before - len(self.history)
+                        rb_msg = (
+                            f"  [AdaptiveIRC] Step {stepno:d}: rolling back {rollback_steps:d} "
+                            f"accepted step(s); dx {old_dx:.4f} -> {self.dx:.4f}.\n"
+                        )
+                        self._write_msg(rb_msg)
+                        continue
 
                 # No more rollback options: only succeed if convergence is genuinely satisfied
-                self._restore_state(base_state)
+                self._restore_state(trial_state)
 
                 if self.converged():
                     lam_min = self._get_lambda_min()
