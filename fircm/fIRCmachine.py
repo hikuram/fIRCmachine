@@ -811,6 +811,46 @@ def get_symmetry_info(atoms, tol=1e-3):
     return geometry, sym_num, internal_safe
 
 
+def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
+    freqs = vib.get_frequencies()
+    natoms = len(atoms)
+    numbers = atoms.get_atomic_numbers()
+    modes = [vib.get_mode(i) for i in range(len(freqs))]
+
+    """
+    Generate an .xyz animation of vibration along the selected mode.
+    Parameters:
+    - atoms: ASE Atoms object (original geometry)
+    - vib: ASE Vibrations object
+    - mode_index: Index of vibration mode to animate (default: 0)
+    - steps: Number of steps for half cycle (default: 10)
+    - scale: Scaling factor for mode displacement (default: 1.0)
+    """
+    mode = vib.get_mode(mode_index)  # (N_atoms, 3) displacement vectors
+    mode = np.array(mode)
+    original_positions = atoms.get_positions()
+    images = []
+
+    def generate_half_cycle(sign):
+        for i in range(steps):
+            factor = sign * (i + 1) / steps
+            displaced = original_positions + factor * scale * mode
+            new_atoms = atoms.copy()
+            new_atoms.set_positions(displaced)
+            images.append(new_atoms.copy())
+
+        for i in range(steps):
+            factor = sign * (steps - i - 1) / steps
+            displaced = original_positions + factor * scale * mode
+            new_atoms = atoms.copy()
+            new_atoms.set_positions(displaced)
+            images.append(new_atoms.copy())
+
+    generate_half_cycle(+1)  # +mode -> original
+    generate_half_cycle(-1)  # -mode -> original
+    write(output, images)
+    print(f"[Info] Wrote {len(images)} frames to {output}")
+
 # Run vibrations and thermodynamics
 def vib_img(xyz_name):
     img = read(xyz_name)
