@@ -53,6 +53,9 @@ class AdaptiveIRC(IRC):
         # History of accepted states only
         self.history = []
 
+        # IRC.d1 is initialized later in IRC.irun()
+        self.d1 = None
+
     def _round_dx(self, dx):
         q = self.dx_quantum
         if q is None or q <= 0:
@@ -82,7 +85,7 @@ class AdaptiveIRC(IRC):
 
         state = dict(
             x=self.pes.get_x().copy(),
-            d1=self.d1.copy(),
+            d1=None if self.d1 is None else self.d1.copy(),
             first=self.first,
             dx=self.dx,
             H=H_backup,
@@ -93,7 +96,7 @@ class AdaptiveIRC(IRC):
 
     def _restore_state(self, state):
         self.pes.set_x(state['x'])
-        self.d1 = state['d1'].copy()
+        self.d1 = None if state['d1'] is None else state['d1'].copy()
         self.first = state['first']
         self.dx = state['dx']
         self.pes.set_H(state['H'], initialized=(state['H'] is not None))
