@@ -1,153 +1,302 @@
 import time
+import copy
 import numpy as np
 from sella.optimize.irc import IRC, IRCInnerLoopConvergenceFailure
 
+
 class AdaptiveIRC(IRC):
     """
-    An extension of Sella's IRC that automatically shrinks the step size (dx) 
-    upon inner loop convergence failure (or ANY numerical math error), 
-    and grows it back when the path is stable.
+    An extension of Sella's IRC that automatically shrinks the step size (dx)
+    upon inner loop convergence failure, grows it back when the path is stable,
+    and can roll back to previously accepted IRC points when noisy PES regions
+    trap the path.
+
+    Additional behavior:
+    - dx growth/shrink is rounded to a user-friendly grid (e.g. 0.005 or 0.010)
+    - convergence tolerates a slightly negative minimum Hessian eigenvalue
+      to handle flat minima / numerical noise
+    - discarded trial steps are NOT written to trajectory
+    - the printed/logged step number follows accepted trajectory points
+
+    Tested with Sella 2.3.x
+    Recommended base: Sella v2.3.5
     """
-    def __init__(self, *args, max_dx=0.16, min_dx=0.01, 
-                 shrink_factor=0.5, grow_factor=2.0, grow_after=3, **kwargs):
+    def __init__(self, *args, dx=0.06, max_dx=0.12, min_dx=0.01,
+                 shrink_factor=0.5, grow_factor=1.25, grow_after=3,
+                 dx_quantum=0.005, eig_tol=1e-5,
+                 max_history=8, max_rollback=4,
+                 rollback_factor=0.75, same_point_max_retries=1,
+                 **kwargs):
         super().__init__(*args, **kwargs)
         # Store the initial dx value
         self.initial_dx = self.dx
-        
+
         self.max_dx = max_dx
         self.min_dx = min_dx
         self.shrink_factor = shrink_factor
         self.grow_factor = grow_factor
         self.grow_after = grow_after
+        self.dx_quantum = dx_quantum
+        self.eig_tol = eig_tol
+
+        self.max_history = max_history
+        self.max_rollback = max_rollback
+        self.rollback_factor = rollback_factor
+        self.same_point_max_retries = same_point_max_retries
+
         self.consecutive_successes = 0
-        
-        # Add: Force convergence flag
-        self._force_converged = False
 
-    def run(self, *args, **kwargs):
-        # Reset internal states every time a new run (forward/reverse) starts
-        self.dx = self.initial_dx
-        self.consecutive_successes = 0
-        self._force_converged = False
-        
-        direction = kwargs.get('direction', 'forward')
-        msg = f"  [AdaptiveIRC] Starting new run (direction={direction}). Reset dx to {self.dx:.4f}\n"
-        print(msg, end="")
-        if self.logfile is not None:
-            self.logfile.write(msg)
-            self.logfile.flush()
-            
-        return super().run(*args, **kwargs)
+        # Accepted-step counter: this is what traj corresponds to
+        self.accepted_steps = 0
 
-    def converged(self, forces=None):
-        # Terminate the ASE loop upon Graceful Exit
-        if self._force_converged:
-            return True
-        return super().converged(forces)
+        # History of accepted states only
+        self.history = []
 
-    def step(self):
-        # Do nothing if already forcefully converged (fail-safe)
-        if self._force_converged:
-            return
+    def _round_dx(self, dx):
+        q = self.dx_quantum
+        if q is None or q <= 0:
+            return dx
+        return round(dx / q) * q
 
-        # Backup state
-        x_backup = self.pes.get_x().copy()
-        d1_backup = self.d1.copy()
-        first_backup = self.first
-        
+    def _clip_round_dx(self, dx):
+        dx = min(max(dx, self.min_dx), self.max_dx)
+        dx = self._round_dx(dx)
+        dx = min(max(dx, self.min_dx), self.max_dx)
+        return dx
+
+    def _copy_cache_dict(self, dct):
+        out = {}
+        for key, val in dct.items():
+            if isinstance(val, np.ndarray):
+                out[key] = val.copy()
+            else:
+                out[key] = copy.deepcopy(val)
+        return out
+
+    def _snapshot_state(self):
         if self.pes.H.B is not None:
             H_backup = self.pes.H.B.copy()
         else:
             H_backup = None
 
+        state = dict(
+            x=self.pes.get_x().copy(),
+            d1=self.d1.copy(),
+            first=self.first,
+            dx=self.dx,
+            H=H_backup,
+            curr=self._copy_cache_dict(self.pes.curr),
+            last=self._copy_cache_dict(self.pes.last),
+        )
+        return state
+
+    def _restore_state(self, state):
+        self.pes.set_x(state['x'])
+        self.d1 = state['d1'].copy()
+        self.first = state['first']
+        self.dx = state['dx']
+        self.pes.set_H(state['H'], initialized=(state['H'] is not None))
+        self.pes.curr = self._copy_cache_dict(state['curr'])
+        self.pes.last = self._copy_cache_dict(state['last'])
+
+    def _push_history(self):
+        self.history.append(self._snapshot_state())
+        if len(self.history) > self.max_history:
+            self.history.pop(0)
+
+    def _accepted_stepno(self):
+        return self.accepted_steps + 1
+
+    def _write_msg(self, msg):
+        print(msg, end="")
+        if self.logfile is not None:
+            self.logfile.write(msg)
+            self.logfile.flush()
+
+    def _write_accepted_traj(self):
+        if self.pes.traj is not None:
+            self.pes.write_traj()
+
+    def _get_lambda_min(self):
+        evals = getattr(self.pes.H, 'evals', None)
+        if evals is None:
+            return np.nan
+        return evals[0]
+
+    def run(self, *args, **kwargs):
+        # Reset internal states every time a new run (forward/reverse) starts
+        self.dx = self._clip_round_dx(self.initial_dx)
+        self.consecutive_successes = 0
+        self.accepted_steps = 0
+        self.history = []
+
+        direction = kwargs.get('direction', 'forward')
+        msg = f"  [AdaptiveIRC] Starting new run (direction={direction}). Reset dx to {self.dx:.4f}\n"
+        self._write_msg(msg)
+
+        return super().run(*args, **kwargs)
+
+    def converged(self, forces=None):
+        evals = getattr(self.pes.H, 'evals', None)
+        if evals is None:
+            return False
+        return self.pes.converged(self.fmax)[0] and (evals[0] > -self.eig_tol)
+
+    def step(self):
+        # Baseline is the last accepted point
+        base_state = self._snapshot_state()
+
+        same_point_retry_count = 0
+        rollback_depth = 0
+
         while True:
+            trial_state = self._snapshot_state()
+
+            # Disable trajectory output during speculative trial steps
+            traj_backup = self.pes.traj
+            self.pes.traj = None
+
             try:
                 super().step()
-                
-                # --- On Success ---
+            except IRCInnerLoopConvergenceFailure as e:
+                self.pes.traj = traj_backup
+
+                stepno = self._accepted_stepno()
+                error_name = type(e).__name__
+                error_msg = str(e) if str(e) else "No error message"
+                msg = (
+                    f"  [AdaptiveIRC] Step {stepno:d} failed "
+                    f"({error_name}: {error_msg}) at dx={self.dx:.4f}.\n"
+                )
+                self._write_msg(msg)
+
+                # First, try same-point retry with smaller dx
+                if same_point_retry_count < self.same_point_max_retries:
+                    self._restore_state(trial_state)
+
+                    old_dx = self.dx
+                    new_dx = self._clip_round_dx(self.dx * self.shrink_factor)
+                    self.consecutive_successes = 0
+                    same_point_retry_count += 1
+
+                    if new_dx < old_dx:
+                        self.dx = new_dx
+                        retry_msg = (
+                            f"  [AdaptiveIRC] Step {stepno:d}: restored same point. "
+                            f"Retrying with smaller dx={self.dx:.4f} ...\n"
+                        )
+                        self._write_msg(retry_msg)
+                        continue
+
+                # Next, roll back to older accepted points
+                rolled_back = False
+                max_depth = min(self.max_rollback, len(self.history))
+                while rollback_depth < max_depth:
+                    rollback_depth += 1
+                    hist_state = self.history[-rollback_depth]
+
+                    self._restore_state(hist_state)
+
+                    old_dx = self.dx
+                    target_dx = min(hist_state['dx'], trial_state['dx'] * self.rollback_factor)
+                    new_dx = self._clip_round_dx(target_dx)
+                    self.consecutive_successes = 0
+                    same_point_retry_count = 0
+
+                    if new_dx < self.min_dx:
+                        new_dx = self.min_dx
+                    self.dx = new_dx
+
+                    rb_msg = (
+                        f"  [AdaptiveIRC] Step {stepno:d}: rolling back {rollback_depth:d} "
+                        f"accepted step(s); dx {old_dx:.4f} -> {self.dx:.4f}.\n"
+                    )
+                    self._write_msg(rb_msg)
+
+                    rolled_back = True
+                    break
+
+                if rolled_back:
+                    continue
+
+                # No more rollback options: only succeed if convergence is genuinely satisfied
+                self._restore_state(base_state)
+
+                if self.converged():
+                    lam_min = self._get_lambda_min()
+                    msg_conv = (
+                        f"  [AdaptiveIRC] Step {stepno:d}: rollback budget exhausted, "
+                        f"but convergence criteria are satisfied "
+                        f"(lambda_min={lam_min:.6e}, eig_tol={self.eig_tol:.6e}). Stopping.\n"
+                    )
+                    self._write_msg(msg_conv)
+                    break
+
+                try:
+                    current_fmax = np.linalg.norm(
+                        self.pes.get_projected_forces(), axis=1
+                    ).max()
+                except Exception:
+                    current_fmax = np.nan
+
+                lam_min = self._get_lambda_min()
+                abort_msg = (
+                    f"AdaptiveIRC aborted at planned step {stepno:d}: "
+                    f"rollback budget exhausted, fmax={current_fmax:.4f}, "
+                    f"lambda_min={lam_min:.6e}, eig_tol={self.eig_tol:.6e}, "
+                    f"dx={self.dx:.4f}.\n"
+                )
+                if self.logfile is not None:
+                    self.logfile.write(abort_msg)
+                    self.logfile.flush()
+                raise RuntimeError(abort_msg.strip()) from e
+
+            else:
+                self.pes.traj = traj_backup
+
+                # Successful accepted outer step: now write a single traj frame
+                self._write_accepted_traj()
+                self.accepted_steps += 1
+                self._push_history()
+
                 self.consecutive_successes += 1
                 if self.consecutive_successes >= self.grow_after:
                     old_dx = self.dx
-                    self.dx = min(self.dx * self.grow_factor, self.max_dx)
-                    if self.dx > old_dx:
-                        msg = f"  [AdaptiveIRC] Path looks stable. Increasing dx: {old_dx:.4f} -> {self.dx:.4f}\n"
-                        print(msg, end="")
-                        if self.logfile is not None:
-                            self.logfile.write(msg)
-                            self.logfile.flush()
-                    self.consecutive_successes = 0
-                break
-                
-            # Catch ALL exceptions
-            except Exception as e:
-                error_name = type(e).__name__
-                error_msg = str(e) if str(e) else "No error message"
-                
-                # --- On Failure ---
-                msg = f"  [AdaptiveIRC] Step failed ({error_name}: {error_msg}) at dx={self.dx:.4f}.\n"
-                print(msg, end="")
-                if self.logfile is not None:
-                    self.logfile.write(msg)
-                
-                # Restore state
-                self.pes.set_x(x_backup)
-                self.d1 = d1_backup.copy()
-                self.first = first_backup
-                self.pes.set_H(H_backup, initialized=(H_backup is not None))
-                
-                # Shrink step size
-                self.dx *= self.shrink_factor
-                self.consecutive_successes = 0
-                
-                if self.dx < self.min_dx:
-                    # Graceful Exit Logic
-                    try:
-                        current_fmax = np.linalg.norm(self.pes.get_projected_forces(), axis=1).max()
-                    except Exception:
-                        current_fmax = 1.0  
-                    
-                    target_fmax = getattr(self, 'fmax', 0.01)
-                    
-                    if current_fmax < target_fmax * 2.5:
-                        msg_grace = f"  [AdaptiveIRC] Reached min_dx, but fmax ({current_fmax:.4f}) is small enough. Assuming convergence.\n"
-                        print(msg_grace, end="")
-                        if self.logfile is not None:
-                            self.logfile.write(msg_grace)
-                            self.logfile.flush()
-                        
-                        # Set a flag to signal convergence to ASE
-                        self._force_converged = True
-                        break
-                    else:
-                        abort_msg = (
-                            f"AdaptiveIRC aborted: step size (dx) shrank below min_dx ({self.min_dx}) "
-                            f"and fmax ({current_fmax:.4f}) is still high.\n"
+                    new_dx = self._clip_round_dx(self.dx * self.grow_factor)
+                    if new_dx > old_dx:
+                        self.dx = new_dx
+                        msg = (
+                            f"  [AdaptiveIRC] Step {self.accepted_steps:d}: path looks stable. "
+                            f"Increasing dx: {old_dx:.4f} -> {self.dx:.4f}\n"
                         )
-                        if self.logfile is not None:
-                            self.logfile.write(abort_msg)
-                            self.logfile.flush()
-                        raise RuntimeError(abort_msg.strip()) from e
-                
-                retry_msg = f"  [AdaptiveIRC] Restored geometry. Retrying with smaller dx={self.dx:.4f} ...\n"
-                print(retry_msg, end="")
-                if self.logfile is not None:
-                    self.logfile.write(retry_msg)
-                    self.logfile.flush()
+                        self._write_msg(msg)
+                    self.consecutive_successes = 0
+
+                break
 
     def log(self, forces=None):
         if self.logfile is None:
             return
+
         try:
-            fmax = np.linalg.norm(self.pes.get_projected_forces(), axis=1).max()
+            _, fmax, cmax = self.pes.converged(self.fmax)
         except Exception:
-            fmax = 0.0
-            
+            fmax = np.nan
+            cmax = np.nan
+
         e = self.pes.get_f()
         T = time.strftime("%H:%M:%S", time.localtime())
         name = self.__class__.__name__
-        
+        lam_min = self._get_lambda_min()
+
         if self.nsteps == 0:
-            self.logfile.write(f"{' ' * len(name)} {'Step':>4s} {'Time':>8s} {'Energy':>15s} {'fmax':>12s} {'dx':>10s}\n")
-            
-        self.logfile.write(f"{name} {self.nsteps:>3d} {T:>8s} {e:>15.6f} {fmax:>12.4f} {self.dx:>10.4f}\n")
+            self.logfile.write(
+                f"{' ' * len(name)} {'Step':>4s} {'Time':>8s} {'Energy':>15s} "
+                f"{'fmax':>12s} {'cmax':>12s} {'dx':>10s} {'lam_min':>14s}\n"
+            )
+
+        self.logfile.write(
+            f"{name} {self._accepted_stepno():>3d} {T:>8s} {e:>15.6f} "
+            f"{fmax:>12.4f} {cmax:>12.4f} {self.dx:>10.4f} {lam_min:>14.6e}\n"
+        )
         self.logfile.flush()
