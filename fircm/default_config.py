@@ -33,7 +33,7 @@ DMF_CONVERGENCE: str = "tight"
 SELLA_INTERNAL: bool = True
 IRC_DX_INIT: float = 0.06
 IRC_DX_MAX: float = 0.12
-IRC_DX_MIN: float = 0.01
+IRC_DX_MIN: float = 0.02
 
 # Physical constants
 EV_TO_KCAL_MOL: float = 23.0605
