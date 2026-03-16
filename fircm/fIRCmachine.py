@@ -102,22 +102,33 @@ def process_local_maxima():
 
         # == Run IRC ===================
         if g.IRC_ON:
-            t_irc_start = timepfc()
-            try:
-                irc_result = irc_img(base_name + "_tsopt.xyz")
-            except Exception as e:
-                print(f"Warning: IRC failed: {e}")
-                irc_result = [None, None]
-            t_irc = timepfc() - t_irc_start
-            write_result(
-                ['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'],
-                [t_irc] + irc_result
-            )
-            print(f"irc {t_irc} sec")
-
-            write_energies(base_name + "_tsopt_irc0/irc.traj")
-            write_energies(base_name + "_tsopt_irc1/irc.traj")
-            irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc0/irc.traj"
+            target_xyz = base_name + "_tsopt.xyz"
+            
+            if not os.path.exists(target_xyz):
+                print(f"Warning: Skipping IRC for {base_name} (Missing TS structure).")
+                write_result(['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'], [None, None, None])
+            else:
+                t_irc_start = timepfc()
+                try:
+                    irc_result = irc_img(target_xyz)
+                    
+                    if os.path.exists(base_name + "_tsopt_irc0/irc.traj"):
+                        write_energies(base_name + "_tsopt_irc0/irc.traj")
+                        irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc0/irc.traj"
+                    if os.path.exists(base_name + "_tsopt_irc1/irc.traj"):
+                        write_energies(base_name + "_tsopt_irc1/irc.traj")
+                        irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc1/irc.traj"
+                        
+                except Exception as e:
+                    print(f"Warning: IRC failed for {base_name}: {e}")
+                    irc_result = [None, None]
+                    
+                t_irc = timepfc() - t_irc_start
+                write_result(
+                    ['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'],
+                    [t_irc] + irc_result
+                )
+                print(f"irc {t_irc} sec")
         # ==
 
     t_tsopt_irc = timepfc() - t_tsopt_irc_start
@@ -132,12 +143,12 @@ def process_local_maxima():
     # TS-like point, and the original end state.
     vib_files = peak_files
     if g.PICK_OPTPOINTS_ON:
-        vib_files = make_optpoints_traj(peak_files)
+        g.ORIG_R_CSV = g.R_CSV
+        vib_files, opt_indices = make_optpoints_traj(peak_files)
         optpoints_csv = "optpoints/result_optpoints.csv"
-        write_energies("optpoints/optpoints.traj", csv_name=optpoints_csv, previous_image=g.PEAK_IDX)
+        write_energies("optpoints/optpoints.traj", csv_name=optpoints_csv, previous_image=opt_indices)
         df_new = pd.read_csv(optpoints_csv)
         g.R_CSV = optpoints_csv
-        g.PEAK_IDX = df_new["previous_#image"].to_numpy()
 
     # Sub-iteration 2: include endpoints or reduced representative points
     t_vib_sum = 0
@@ -494,6 +505,7 @@ def make_optpoints_traj(
     branch_plan = [
         (start_file, 0),
     ]
+    branch_indices = [prev_idx for _, prev_idx in branch_plan]
     if middle_file is not None:
         branch_plan.append((middle_file, int(os.path.splitext(middle_file)[0].split('_')[-1].split('.')[0])))
     branch_plan.append((end_file, int(os.path.splitext(end_file)[0].split('_')[-1].split('.')[0])))
@@ -525,7 +537,7 @@ def make_optpoints_traj(
         f"-c {g.CHARGE} -m {g.CALC_TYPE} -i {g.CURRENT_DIR}/{out_traj}"
     )
 
-    return branch_xyz_files
+    return branch_xyz_files, branch_indices
 
 
 # Run MEP optimization with FB-ENM/DMF
@@ -937,26 +949,37 @@ def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image
 
 # Finishing steps
 def finalize_run():
-    # Write relative energy (kcal/mol)
-    df = pd.read_csv(g.R_CSV)
-    if g.VIB_ON:
-        try:
-            if df["E_0K [kcal/mol]"].notna().any():
-                df["Delta E_0K vs. reactant [kcal/mol]"] = df["E_0K [kcal/mol]"] - df.loc[0, "E_0K [kcal/mol]"]
-            if df["H [kcal/mol]"].notna().any():
-                df["Delta H vs. reactant [kcal/mol]"] = df["H [kcal/mol]"] - df.loc[0, "H [kcal/mol]"]
-            if df["G [kcal/mol]"].notna().any():
-                df["Delta G vs. reactant [kcal/mol]"] = df["G [kcal/mol]"] - df.loc[0, "G [kcal/mol]"]
-            if "G_refine [kcal/mol] (HL//LL)" in df.columns and df["G_refine [kcal/mol] (HL//LL)"].notna().any():
-                df["Delta G_refine vs. reactant [kcal/mol] (HL//LL)"] = df["G_refine [kcal/mol] (HL//LL)"] - df.loc[0, "G_refine [kcal/mol] (HL//LL)"]
-            df.to_csv(g.R_CSV, index=False)
-        except Exception as e:
-            print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
-    
-    # plot
-    if g.SAVE_FIG_ON:
-        figname = f"fig_{os.path.splitext(os.path.basename(g.R_CSV))[0]}.png"
-        instant_plot(df, g.PEAK_IDX, figname)
+    csv_targets = []
+    if g.PICK_OPTPOINTS_ON and hasattr(g, 'ORIG_R_CSV'):
+        csv_targets.append((g.ORIG_R_CSV, g.PEAK_IDX))
+        csv_targets.append((g.R_CSV, None))
+    else:
+        csv_targets.append((g.R_CSV, g.PEAK_IDX))
+
+    for csv_file, peak_idx in csv_targets:
+        if not os.path.exists(csv_file):
+            continue
+
+        # Write relative energy (kcal/mol)
+        df = pd.read_csv(csv_file)
+        if g.VIB_ON:
+            try:
+                if df["E_0K [kcal/mol]"].notna().any():
+                    df["Delta E_0K vs. reactant [kcal/mol]"] = df["E_0K [kcal/mol]"] - df.loc[0, "E_0K [kcal/mol]"]
+                if df["H [kcal/mol]"].notna().any():
+                    df["Delta H vs. reactant [kcal/mol]"] = df["H [kcal/mol]"] - df.loc[0, "H [kcal/mol]"]
+                if df["G [kcal/mol]"].notna().any():
+                    df["Delta G vs. reactant [kcal/mol]"] = df["G [kcal/mol]"] - df.loc[0, "G [kcal/mol]"]
+                if "G_refine [kcal/mol] (HL//LL)" in df.columns and df["G_refine [kcal/mol] (HL//LL)"].notna().any():
+                    df["Delta G_refine vs. reactant [kcal/mol] (HL//LL)"] = df["G_refine [kcal/mol] (HL//LL)"] - df.loc[0, "G_refine [kcal/mol] (HL//LL)"]
+                df.to_csv(csv_file, index=False)
+            except Exception as e:
+                print(f"Warning: An error occurred while writing {csv_file}: {e}")
+        
+        # plot
+        if g.SAVE_FIG_ON:
+            figname = f"fig_{os.path.splitext(os.path.basename(csv_file))[0]}.png"
+            instant_plot(df, peak_idx, figname)
     
     # Suggest next steps
     if g.WRITE_SUGGESTIONS_ON and len(g.SUGGESTIONS)>0:
