@@ -648,6 +648,9 @@ def tsopt_img(xyz_name: str) -> Atoms:
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
+    if g.SELLA_INTERNAL_AUTO:
+        # Check the symmetry of the initial structure
+        _, _, g.SELLA_INTERNAL = get_symmetry_info(img)
     # Set up a Sella Dynamics object
     dyn = Sella(
         img, internal=g.SELLA_INTERNAL, order=1, constraints=None,
@@ -730,47 +733,6 @@ def refine_energy_img(xyz_name, refine_type="pyscf_high"):
     return [energy_eV, energy_kcal]
 
 # 
-def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
-    freqs = vib.get_frequencies()
-    natoms = len(atoms)
-    numbers = atoms.get_atomic_numbers()
-    modes = [vib.get_mode(i) for i in range(len(freqs))]
-
-    """
-    Generate an .xyz animation of vibration along the selected mode.
-    Parameters:
-    - atoms: ASE Atoms object (original geometry)
-    - vib: ASE Vibrations object
-    - mode_index: Index of vibration mode to animate (default: 0)
-    - steps: Number of steps for half cycle (default: 10)
-    - scale: Scaling factor for mode displacement (default: 1.0)
-    """
-    mode = vib.get_mode(mode_index)  # (N_atoms, 3) displacement vectors
-    mode = np.array(mode)
-    original_positions = atoms.get_positions()
-    images = []
-
-    def generate_half_cycle(sign):
-        for i in range(steps):
-            factor = sign * (i + 1) / steps
-            displaced = original_positions + factor * scale * mode
-            new_atoms = atoms.copy()
-            new_atoms.set_positions(displaced)
-            images.append(new_atoms.copy())
-
-        for i in range(steps):
-            factor = sign * (steps - i - 1) / steps
-            displaced = original_positions + factor * scale * mode
-            new_atoms = atoms.copy()
-            new_atoms.set_positions(displaced)
-            images.append(new_atoms.copy())
-
-    generate_half_cycle(+1)  # +mode -> original
-    generate_half_cycle(-1)  # -mode -> original
-    write(output, images)
-    print(f"[Info] Wrote {len(images)} frames to {output}")
-
-
 def get_symmetry_info(atoms):
     """
     Analyze the point group of the molecule using PySCF and return
@@ -781,7 +743,7 @@ def get_symmetry_info(atoms):
     from pyscf import gto
     
     if len(atoms) == 1:
-        return 'monatomic', 1
+        return 'monatomic', 1, True
         
     try:
         # Convert ASE Atoms to PySCF atom list format
@@ -798,7 +760,7 @@ def get_symmetry_info(atoms):
         pg = mol.topgroup
     except Exception as e:
         print(f"Warning: Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
-        return 'nonlinear', 1
+        return 'nonlinear', 1, True
         
     # Determine if the molecule is linear
     geometry = 'linear' if pg in ['Cinfv', 'Dinfh'] else 'nonlinear'
@@ -827,9 +789,23 @@ def get_symmetry_info(atoms):
                 sym_num = 2 * n
             elif letter == 'S':
                 sym_num = n // 2
-                
-    print(f"  [Thermo] Detected Point Group: {pg} -> geometry='{geometry}', symmetrynumber={sym_num}")
-    return geometry, sym_num
+
+    # Determine whether to use internal coordinates.
+    # Internal coordinates mathematically fail for linear molecules.
+    # High-symmetry planar/spherical groups (e.g., D3h, Oh) can also cause ODE solver singularities.
+    # Cs, C2v, etc., are perfectly safe for internal coordinates.
+    risky_point_groups = ['D3h', 'D4h', 'D6h', 'Td', 'Oh', 'Ih']
+    internal_safe = True
+    if geometry == 'linear':
+        internal_safe = False
+    elif pg in risky_point_groups:
+        internal_safe = False
+    print(
+        f"  [coords] Detected Point Group: {pg} -> "
+        f"geometry='{geometry}', symmetrynumber={sym_num}, "
+        f"internal_safe={internal_safe}"
+    )
+    return geometry, sym_num, internal_safe
 
 
 # Run vibrations and thermodynamics
@@ -855,7 +831,7 @@ def vib_img(xyz_name):
     # Use ignore_imag_modes=True
     vib_energies = vib.get_energies()
     # Dynamically obtain symmetry and geometry via PySCF
-    geom_type, sym_num = get_symmetry_info(img)
+    geom_type, sym_num, _ = get_symmetry_info(img)
     
     thermo = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=electronic_energy,

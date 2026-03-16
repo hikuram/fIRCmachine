@@ -31,6 +31,7 @@ NMOVE: int = 40
 UPDATE_TEVAL: bool = False
 DMF_CONVERGENCE: str = "tight"
 # -Sella
+SELLA_INTERNAL_AUTO: bool = True
 SELLA_INTERNAL: bool = True
 IRC_DX_INIT: float = 0.06
 IRC_DX_MAX: float = 0.12
