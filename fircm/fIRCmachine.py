@@ -650,7 +650,7 @@ def tsopt_img(xyz_name: str) -> Atoms:
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     if g.SELLA_INTERNAL_AUTO:
         # Check the symmetry of the initial structure
-        _, _, g.SELLA_INTERNAL = get_symmetry_info(img)
+        _, _, g.SELLA_INTERNAL = get_symmetry_info(img, tol=1e-3)
     # Set up a Sella Dynamics object
     dyn = Sella(
         img, internal=g.SELLA_INTERNAL, order=1, constraints=None,
@@ -733,7 +733,7 @@ def refine_energy_img(xyz_name, refine_type="pyscf_high"):
     return [energy_eV, energy_kcal]
 
 # 
-def get_symmetry_info(atoms):
+def get_symmetry_info(atoms, tol=1e-3):
     """
     Analyze the point group of the molecule using PySCF and return
     the geometry type ('linear'/'nonlinear') and symmetry number (sigma)
@@ -754,6 +754,7 @@ def get_symmetry_info(atoms):
         mol.atom = atom_list
         mol.basis = 'sto-3g'  # Dummy basis just to allow build() to pass
         mol.symmetry = True
+        mol.symm_tol = tol
         mol.verbose = 0       # Suppress PySCF output
         mol.build()
         
@@ -831,7 +832,7 @@ def vib_img(xyz_name):
     # Use ignore_imag_modes=True
     vib_energies = vib.get_energies()
     # Dynamically obtain symmetry and geometry via PySCF
-    geom_type, sym_num, _ = get_symmetry_info(img)
+    geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-4)
     
     thermo = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=electronic_energy,
