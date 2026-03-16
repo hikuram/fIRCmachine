@@ -133,10 +133,11 @@ def process_local_maxima():
     vib_files = peak_files
     if g.PICK_OPTPOINTS_ON:
         vib_files = make_optpoints_traj(peak_files)
-        optpoints_csv = "optpoints/optpoints_energy.csv"
+        optpoints_csv = "optpoints/result_optpoints.csv"
+        write_energies("optpoints/optpoints.traj", csv_name=optpoints_csv, previous_image=g.PEAK_IDX)
         df_new = pd.read_csv(optpoints_csv)
-        df_new.to_csv(g.R_CSV, index=False)
-        g.PEAK_IDX = np.arange(len(vib_files))
+        g.R_CSV = optpoints_csv
+        g.PEAK_IDX = df_new["previous_#image"].to_numpy()
 
     # Sub-iteration 2: include endpoints or reduced representative points
     t_vib_sum = 0
@@ -498,7 +499,6 @@ def make_optpoints_traj(
     branch_plan.append((end_file, int(os.path.splitext(end_file)[0].split('_')[-1].split('.')[0])))
 
     branch_images = []
-    previous_indices = []
 
     for src_file, previous_idx in branch_plan:
         use_file = src_file
@@ -512,24 +512,12 @@ def make_optpoints_traj(
         atoms.info["charge"] = g.CHARGE
         atoms.info["spin"] = g.MULT
         branch_images.append(atoms)
-        previous_indices.append(previous_idx)
 
     write(out_traj, branch_images)
     traj_to_xyz(branch_images, out_traj + ".xyz")
-    write_energies(out_traj)
 
     xyz_prefix = os.path.splitext(out_traj)[0]
     branch_xyz_files = split_traj_to_xyz(out_traj, xyz_prefix)
-
-    energy_csv = os.path.splitext(out_traj)[0] + "_energy.csv"
-    try:
-        df_branch = pd.read_csv(energy_csv)
-        df_branch["previous_#image"] = previous_indices
-        cols = ["# image", "previous_#image"] + [c for c in df_branch.columns if c not in ["# image", "previous_#image"]]
-        df_branch = df_branch[cols]
-        df_branch.to_csv(energy_csv, index=False)
-    except Exception as e:
-        print(f"Warning: failed to write previous_#image to {energy_csv}: {e}")
 
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{out_traj}")
     g.SUGGESTIONS.append(
