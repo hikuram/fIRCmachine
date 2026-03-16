@@ -798,7 +798,7 @@ def get_symmetry_info(atoms, tol=1e-3):
     # Internal coordinates mathematically fail for linear molecules.
     # High-symmetry planar/spherical groups (e.g., D3h, Oh) can also cause ODE solver singularities.
     # Cs, C2v, etc., are perfectly safe for internal coordinates.
-    risky_point_groups = ['D3h', 'D4h', 'D6h', 'Td', 'Oh', 'Ih']
+    risky_point_groups = ['D3h', 'D4h', 'D6h', 'Td', 'Oh', 'Ih', 'C3v']
     internal_safe = True
     if geometry == 'linear':
         internal_safe = False
