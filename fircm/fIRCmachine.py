@@ -62,7 +62,7 @@ def process_local_maxima():
     # Detect and save local maxima
     peak_files = []
     peak_files, g.PEAK_IDX = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
-    
+
     # Write CSV (accepts a pair of elements or lists)
     def write_result(column_name, value):
         if not isinstance(column_name, list):
@@ -74,81 +74,96 @@ def process_local_maxima():
             df_new.to_csv(g.R_CSV, index=False)
         except Exception as e:
             print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
-    
+
     # Sub-iteration 1: ignore endpoints
     irc_trajs_str = ""
     t_tsopt_irc_start = timepfc()
     for i, peak_file in enumerate(peak_files):
         if len(peak_files) > 2:
-            if i == 0 or i == len(peak_files)-1:
+            if i == 0 or i == len(peak_files) - 1:
                 continue
-        
+
         base_name = os.path.splitext(peak_file)[0]
-        idx = int(base_name.split('_')[-1].split('.')[0]) # index of local maximum
+        idx = int(base_name.split('_')[-1].split('.')[0])  # index of local maximum
         atoms = read(peak_file)
         atoms.info["charge"] = g.CHARGE
         atoms.info["spin"] = g.MULT
-        
+
         # == Run TS optimization ===================
         if g.TSOPT_ON:
             t_tsopt_start = timepfc()
             try:
-                tsopt_img(base_name+".xyz")
+                tsopt_img(base_name + ".xyz")
             except Exception as e:
                 print(f"Warning: TSopt failed: {e}")
             t_tsopt = timepfc() - t_tsopt_start
             write_result('time_TSopt [s]', t_tsopt)
             print(f"tsopt {t_tsopt} sec")
-        
+
         # == Run IRC ===================
         if g.IRC_ON:
             t_irc_start = timepfc()
             try:
-                irc_result = irc_img(base_name+"_tsopt.xyz")
+                irc_result = irc_img(base_name + "_tsopt.xyz")
             except Exception as e:
                 print(f"Warning: IRC failed: {e}")
+                irc_result = [None, None]
             t_irc = timepfc() - t_irc_start
             write_result(
                 ['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'],
-                [t_irc]+irc_result
+                [t_irc] + irc_result
             )
             print(f"irc {t_irc} sec")
-            
-            write_energies(base_name+"_tsopt_irc0/irc.traj")
-            write_energies(base_name+"_tsopt_irc1/irc.traj")
+
+            write_energies(base_name + "_tsopt_irc0/irc.traj")
+            write_energies(base_name + "_tsopt_irc1/irc.traj")
             irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc0/irc.traj"
         # ==
-        
+
     t_tsopt_irc = timepfc() - t_tsopt_irc_start
     txt = f"* TSopt/IRC_Total       | {t_tsopt_irc:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
-    g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
-    
-    # Sub-iteration 2: include endpoints
+    if irc_trajs_str.strip():
+        g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
+
+    # Optional workflow: pick representative optimized points for thermochemistry.
+    # Instead of using all detected peaks, this mode builds a reduced
+    # trajectory containing only the original start state, one highest-energy
+    # TS-like point, and the original end state.
+    vib_files = peak_files
+    if g.PICK_OPTPOINTS_ON:
+        vib_files = make_optpoints_traj(peak_files)
+        optpoints_csv = "optpoints/optpoints_energy.csv"
+        df_new = pd.read_csv(optpoints_csv)
+        df_new.to_csv(g.R_CSV, index=False)
+        g.PEAK_IDX = np.arange(len(vib_files))
+
+    # Sub-iteration 2: include endpoints or reduced representative points
     t_vib_sum = 0
     t_refine_sum = 0
-    for i, peak_file in enumerate(peak_files):
+    for i, peak_file in enumerate(vib_files):
         base_name = os.path.splitext(peak_file)[0]
-        idx = int(base_name.split('_')[-1].split('.')[0]) # index of local maximum
+        idx = i if g.PICK_OPTPOINTS_ON else int(base_name.split('_')[-1].split('.')[0])
         atoms = read(peak_file)
         atoms.info["charge"] = g.CHARGE
         atoms.info["spin"] = g.MULT
-        
+
         # == Vibrations and IdealGasThermo ===================
         if g.VIB_ON:
             t_vib_start = timepfc()
             try:
-                vib_result = vib_img(base_name+".xyz")
+                vib_result = vib_img(base_name + ".xyz")
             except Exception as e:
                 print(f"Warning: Vibrations failed: {e}")
+                vib_result = [None, None, None, None]
             t_vib = timepfc() - t_vib_start
             t_vib_sum += t_vib
             write_result(
                 ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 'G [kcal/mol]'],
-                [t_vib]+vib_result
+                [t_vib] + vib_result
             )
             print(f"vibrations {t_vib} sec")
-        
+
         # == Other jobs ===================
         if g.OTHER_JOBS_EXAMPLE_ON:
             from ase.geometry import get_distances
@@ -179,7 +194,7 @@ def process_local_maxima():
 #            print(min_rmsd)
 #            write_result('RMSD [angs]', min_rmsd)
         # ==
-        
+
         # == Refinement ===================
         if g.REFINE_ENERGY_ON:
             t_refine_start = timepfc()
@@ -203,6 +218,7 @@ def process_local_maxima():
                 and 'energy [kcal/mol]' in df_new.columns
                 and pd.notna(df_new.at[df_new.index[idx], 'G [kcal/mol]'])
                 and pd.notna(df_new.at[df_new.index[idx], 'energy [kcal/mol]'])
+                and energy_ref_kcal is not None
             ):
                 thermal_corr_G = (
                     df_new.at[df_new.index[idx], 'G [kcal/mol]']
@@ -210,11 +226,12 @@ def process_local_maxima():
                 )
                 G_refine_kcal = energy_ref_kcal + thermal_corr_G
                 write_result('G_refine [kcal/mol] (HL//LL)', G_refine_kcal)
-                
+
             print(f"refinement {t_refine} sec")
         # ==
-        
+
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
+    write_line(g.TIME_LOG_NAME, txt)
     txt = f"* Refinement_Total      | {t_refine_sum:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
 
@@ -359,7 +376,7 @@ def make_calculator(type, atoms, base_name):
 
 
 # Parse input trajectory
-from typing import List
+from typing import List, Optional
 
 def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: float = 0.01) -> List[str]:
     # Load all frames from trajectory
@@ -405,6 +422,122 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
         print(f"  → {filename} (energy = {energies[idx]:.6f})")
 
     return peak_files, g.PEAK_IDX
+
+
+def split_traj_to_xyz(trajfile: str, prefix: str) -> List[str]:
+    """
+    Split a trajectory into single-frame XYZ files.
+    """
+    traj = read(trajfile, index=":")
+    xyz_files = []
+
+    for i, atoms in enumerate(traj):
+        filename = f"{prefix}_{i}.xyz"
+        write(filename, atoms)
+        xyz_files.append(filename)
+
+    return xyz_files
+
+
+def select_highest_peak_file(peak_files: List[str]) -> Optional[str]:
+    """
+    Select the highest-energy internal peak from the detected peak files.
+    """
+    if len(peak_files) <= 2:
+        return None
+
+    max_energy = -np.inf
+    max_peak_file = None
+
+    for peak_file in peak_files[1:-1]:
+        atoms = read(peak_file)
+        try:
+            energy = atoms.get_potential_energy()
+        except Exception:
+            energy = -np.inf
+
+        if energy > max_energy:
+            max_energy = energy
+            max_peak_file = peak_file
+
+    return max_peak_file
+
+
+def make_optpoints_traj(
+    peak_files: List[str],
+    out_traj: str = "optpoints/optpoints.traj"
+) -> List[str]:
+    """
+    Build a reduced 3-point trajectory for downstream VIB/refinement jobs.
+
+    Intent:
+    - Keep the original DMF start and end structures as reference states.
+    - Use only one TS-like internal point, chosen as the highest-energy peak.
+    - Prefer the TS-optimized geometry for that point when available.
+
+    This mode is useful when IRC endpoints do not connect cleanly to
+    meaningful minima, but the original DMF endpoints should still be used
+    as Delta G reference states.
+    """
+    out_dir = os.path.dirname(out_traj)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+
+    if len(peak_files) < 2:
+        raise ValueError("peak_files must contain at least the two endpoints")
+
+    start_file = peak_files[0]
+    end_file = peak_files[-1]
+    middle_file = select_highest_peak_file(peak_files)
+
+    branch_plan = [
+        (start_file, 0),
+    ]
+    if middle_file is not None:
+        branch_plan.append((middle_file, int(os.path.splitext(middle_file)[0].split('_')[-1].split('.')[0])))
+    branch_plan.append((end_file, int(os.path.splitext(end_file)[0].split('_')[-1].split('.')[0])))
+
+    branch_images = []
+    previous_indices = []
+
+    for src_file, previous_idx in branch_plan:
+        use_file = src_file
+        if src_file == middle_file:
+            base_name = os.path.splitext(middle_file)[0]
+            tsopt_file = base_name + "_tsopt.xyz"
+            if g.TSOPT_ON and os.path.exists(tsopt_file):
+                use_file = tsopt_file
+
+        atoms = read(use_file)
+        atoms.info["charge"] = g.CHARGE
+        atoms.info["spin"] = g.MULT
+        branch_images.append(atoms)
+        previous_indices.append(previous_idx)
+
+    write(out_traj, branch_images)
+    traj_to_xyz(branch_images, out_traj + ".xyz")
+    write_energies(out_traj)
+
+    xyz_prefix = os.path.splitext(out_traj)[0]
+    branch_xyz_files = split_traj_to_xyz(out_traj, xyz_prefix)
+
+    energy_csv = os.path.splitext(out_traj)[0] + "_energy.csv"
+    try:
+        df_branch = pd.read_csv(energy_csv)
+        df_branch["previous_#image"] = previous_indices
+        cols = ["# image", "previous_#image"] + [c for c in df_branch.columns if c not in ["# image", "previous_#image"]]
+        df_branch = df_branch[cols]
+        df_branch.to_csv(energy_csv, index=False)
+    except Exception as e:
+        print(f"Warning: failed to write previous_#image to {energy_csv}: {e}")
+
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{out_traj}")
+    g.SUGGESTIONS.append(
+        f"python3 sVIBmachine.py -d {g.CURRENT_DIR}/optpoints "
+        f"-c {g.CHARGE} -m {g.CALC_TYPE} -i {g.CURRENT_DIR}/{out_traj}"
+    )
+
+    return branch_xyz_files
 
 
 # Run MEP optimization with FB-ENM/DMF
@@ -759,7 +892,7 @@ def traj_to_xyz(traj, out_xyz_path):
     except Exception as e:
         print(f"Warning: An error occurred while writing {out_xyz_path}: {e}")
 
-def write_energies(traj_name, csv_name=None, energy_recalc=False):
+def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image=None):
     if not csv_name:
         csv_name = os.path.splitext(traj_name)[0] + "_energy.csv"
     data = []
@@ -798,6 +931,12 @@ def write_energies(traj_name, csv_name=None, energy_recalc=False):
     df = pd.DataFrame(data,
         columns=["# image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"]
         )
+    if previous_image is not None:
+        if len(previous_image) != len(df):
+            raise ValueError("Length of previous_image must match the number of frames")
+        df["previous_#image"] = previous_image
+        cols = ["# image", "previous_#image"] + [c for c in df.columns if c not in ["# image", "previous_#image"]]
+        df = df[cols]
     # Relative energy (kcal/mol)
     if df["energy [kcal/mol]"].notna().any():
         ref = df.loc[0, "energy [kcal/mol]"]

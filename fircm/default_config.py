@@ -6,6 +6,7 @@ REFINE_INPUT_ON: bool = True
 USE_SELLA_IN_OPT: bool = False
 TSOPT_ON: bool = True
 IRC_ON: bool = True
+PICK_OPTPOINTS_ON: bool = False
 VIB_ON: bool = True
 REFINE_ENERGY_ON: bool = True
 OTHER_JOBS_EXAMPLE_ON: bool = False
