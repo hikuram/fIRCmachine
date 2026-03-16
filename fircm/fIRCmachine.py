@@ -740,11 +740,13 @@ def get_symmetry_info(atoms, tol=1e-3):
     required for ASE's IdealGasThermo.
     """
     import re
-    from pyscf import gto
+    from pyscf import gto, symm
     
     if len(atoms) == 1:
         return 'monatomic', 1, True
-        
+    orig_tol = symm.geom.TOLERANCE
+    symm.geom.TOLERANCE = tol
+    
     try:
         # Convert ASE Atoms to PySCF atom list format
         atom_list = [[atom.symbol, atom.position] for atom in atoms]
@@ -754,7 +756,6 @@ def get_symmetry_info(atoms, tol=1e-3):
         mol.atom = atom_list
         mol.basis = 'sto-3g'  # Dummy basis just to allow build() to pass
         mol.symmetry = True
-        mol.symm_tol = tol
         mol.verbose = 0       # Suppress PySCF output
         mol.build()
         
@@ -762,6 +763,8 @@ def get_symmetry_info(atoms, tol=1e-3):
     except Exception as e:
         print(f"Warning: Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
         return 'nonlinear', 1, True
+    finally:
+        symm.geom.TOLERANCE = orig_tol
         
     # Determine if the molecule is linear
     geometry = 'linear' if pg in ['Cinfv', 'Dinfh'] else 'nonlinear'
