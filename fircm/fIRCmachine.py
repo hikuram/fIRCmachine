@@ -413,7 +413,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     ref_images = [reactant_atoms, product_atoms]
     
     # Generate initial path using FB-ENM
-    mxflx_fbenm = interpolate_fbenm(ref_images, correlated=True)
+    quiet_stdout = {"print_level": 0, "file_print_level": 5}
+    mxflx_fbenm = interpolate_fbenm(ref_images, correlated=True, ipopt_options=quiet_stdout)
     write('DMF_init.xyz', mxflx_fbenm.images)
     
     # Write initial path and its coefficients
@@ -429,7 +430,7 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
         img.info["spin"] = g.MULT
         img.calc = make_calculator(g.CALC_TYPE, img, "DMF_init")
     # Solve
-    mxflx.add_ipopt_options({'output_file': 'DMF_ipopt.out'})
+    mxflx.add_ipopt_options({'output_file': 'DMF_ipopt.out', "print_level": 0, "file_print_level": 5})
     try:
         mxflx.solve(tol=g.DMF_CONVERGENCE)
     except Exception as e:
