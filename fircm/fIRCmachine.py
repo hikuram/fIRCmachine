@@ -538,7 +538,7 @@ def irc_img(xyz_name: str) -> List[float]:
     # Set up a Sella IRC object
     opt = AdaptiveIRC(
         img, trajectory=img_name+'_irc.traj', logfile=img_name+"_irc.log",
-        dx=g.IRC_DX_MAX, max_dx=g.IRC_DX_MAX, min_dx=g.IRC_DX_MIN,
+        dx=g.IRC_DX_INIT, max_dx=g.IRC_DX_MAX, min_dx=g.IRC_DX_MIN,
         eta=1e-4, gamma=0.4
     )
     opt.run(fmax=1e-2, steps=1000, direction='forward')
