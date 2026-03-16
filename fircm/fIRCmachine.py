@@ -505,13 +505,12 @@ def make_optpoints_traj(
     branch_plan = [
         (start_file, 0),
     ]
-    branch_indices = [prev_idx for _, prev_idx in branch_plan]
     if middle_file is not None:
         branch_plan.append((middle_file, int(os.path.splitext(middle_file)[0].split('_')[-1].split('.')[0])))
     branch_plan.append((end_file, int(os.path.splitext(end_file)[0].split('_')[-1].split('.')[0])))
-
+    branch_indices = [prev_idx for _, prev_idx in branch_plan]
+    
     branch_images = []
-
     for src_file, previous_idx in branch_plan:
         use_file = src_file
         if src_file == middle_file:
