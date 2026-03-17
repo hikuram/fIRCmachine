@@ -6,6 +6,7 @@ REFINE_INPUT_ON: bool = True
 USE_SELLA_IN_OPT: bool = False
 TSOPT_ON: bool = True
 IRC_ON: bool = True
+PICK_OPTPOINTS_ON: bool = False
 VIB_ON: bool = True
 REFINE_ENERGY_ON: bool = True
 OTHER_JOBS_EXAMPLE_ON: bool = False
@@ -30,6 +31,7 @@ NMOVE: int = 40
 UPDATE_TEVAL: bool = False
 DMF_CONVERGENCE: str = "tight"
 # -Sella
+SELLA_INTERNAL_AUTO: bool = True
 SELLA_INTERNAL: bool = True
 IRC_DX_INIT: float = 0.06
 IRC_DX_MAX: float = 0.12

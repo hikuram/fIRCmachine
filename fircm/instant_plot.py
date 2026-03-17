@@ -58,9 +58,11 @@ def instant_plot(dataframe, peak_idx, fig_name):
         add_underglow(ax)
         
         # 5. Add text for peak values (using .loc to avoid Pandas warnings)
-        for x in peak_idx:
-            y = dataframe.loc[x, colname]
-            ax.text(x, y, '{:.8g}'.format(y), ha='center')
+        if peak_idx is not None:
+            for x in peak_idx:
+                if x in dataframe.index:
+                    y = dataframe.loc[x, colname]
+                    ax.text(x, y, '{:.8g}'.format(y), ha='center')
 
     # 6. Hide any remaining empty subplots if the number of columns is odd
     for empty_ax in axes_flat[len(plot_cols):]:

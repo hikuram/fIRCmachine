@@ -62,7 +62,7 @@ def process_local_maxima():
     # Detect and save local maxima
     peak_files = []
     peak_files, g.PEAK_IDX = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
-    
+
     # Write CSV (accepts a pair of elements or lists)
     def write_result(column_name, value):
         if not isinstance(column_name, list):
@@ -74,81 +74,108 @@ def process_local_maxima():
             df_new.to_csv(g.R_CSV, index=False)
         except Exception as e:
             print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
-    
+
     # Sub-iteration 1: ignore endpoints
     irc_trajs_str = ""
     t_tsopt_irc_start = timepfc()
     for i, peak_file in enumerate(peak_files):
         if len(peak_files) > 2:
-            if i == 0 or i == len(peak_files)-1:
+            if i == 0 or i == len(peak_files) - 1:
                 continue
-        
+
         base_name = os.path.splitext(peak_file)[0]
-        idx = int(base_name.split('_')[-1].split('.')[0]) # index of local maximum
+        idx = int(base_name.split('_')[-1].split('.')[0])  # index of local maximum
         atoms = read(peak_file)
         atoms.info["charge"] = g.CHARGE
         atoms.info["spin"] = g.MULT
-        
+
         # == Run TS optimization ===================
         if g.TSOPT_ON:
             t_tsopt_start = timepfc()
             try:
-                tsopt_img(base_name+".xyz")
+                tsopt_img(base_name + ".xyz")
             except Exception as e:
                 print(f"Warning: TSopt failed: {e}")
             t_tsopt = timepfc() - t_tsopt_start
             write_result('time_TSopt [s]', t_tsopt)
             print(f"tsopt {t_tsopt} sec")
-        
+
         # == Run IRC ===================
         if g.IRC_ON:
-            t_irc_start = timepfc()
-            try:
-                irc_result = irc_img(base_name+"_tsopt.xyz")
-            except Exception as e:
-                print(f"Warning: IRC failed: {e}")
-            t_irc = timepfc() - t_irc_start
-            write_result(
-                ['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'],
-                [t_irc]+irc_result
-            )
-            print(f"irc {t_irc} sec")
+            target_xyz = base_name + "_tsopt.xyz"
             
-            write_energies(base_name+"_tsopt_irc0/irc.traj")
-            write_energies(base_name+"_tsopt_irc1/irc.traj")
-            irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc0/irc.traj"
+            if not os.path.exists(target_xyz):
+                print(f"Warning: Skipping IRC for {base_name} (Missing TS structure).")
+                write_result(['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'], [None, None, None])
+            else:
+                t_irc_start = timepfc()
+                try:
+                    irc_result = irc_img(target_xyz)
+                    
+                    if os.path.exists(base_name + "_tsopt_irc0/irc.traj"):
+                        write_energies(base_name + "_tsopt_irc0/irc.traj")
+                        irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc0/irc.traj"
+                    if os.path.exists(base_name + "_tsopt_irc1/irc.traj"):
+                        write_energies(base_name + "_tsopt_irc1/irc.traj")
+                        irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc1/irc.traj"
+                        
+                except Exception as e:
+                    print(f"Warning: IRC failed for {base_name}: {e}")
+                    irc_result = [None, None]
+                    
+                t_irc = timepfc() - t_irc_start
+                write_result(
+                    ['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'],
+                    [t_irc] + irc_result
+                )
+                print(f"irc {t_irc} sec")
         # ==
-        
+
     t_tsopt_irc = timepfc() - t_tsopt_irc_start
     txt = f"* TSopt/IRC_Total       | {t_tsopt_irc:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
-    g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
-    
-    # Sub-iteration 2: include endpoints
+    if irc_trajs_str.strip():
+        g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
+
+    # Optional workflow: pick representative optimized points for thermochemistry.
+    # Instead of using all detected peaks, this mode builds a reduced
+    # trajectory containing only the original start state, one highest-energy
+    # TS-like point, and the original end state.
+    vib_files = peak_files
+    if g.PICK_OPTPOINTS_ON:
+        g.ORIG_R_CSV = g.R_CSV
+        vib_files, opt_indices = make_optpoints_traj(peak_files)
+        optpoints_csv = "optpoints/result_optpoints.csv"
+        write_energies("optpoints/optpoints.traj", csv_name=optpoints_csv, previous_image=opt_indices)
+        df_new = pd.read_csv(optpoints_csv)
+        g.R_CSV = optpoints_csv
+
+    # Sub-iteration 2: include endpoints or reduced representative points
     t_vib_sum = 0
     t_refine_sum = 0
-    for i, peak_file in enumerate(peak_files):
+    for i, peak_file in enumerate(vib_files):
         base_name = os.path.splitext(peak_file)[0]
-        idx = int(base_name.split('_')[-1].split('.')[0]) # index of local maximum
+        idx = i if g.PICK_OPTPOINTS_ON else int(base_name.split('_')[-1].split('.')[0])
         atoms = read(peak_file)
         atoms.info["charge"] = g.CHARGE
         atoms.info["spin"] = g.MULT
-        
+
         # == Vibrations and IdealGasThermo ===================
         if g.VIB_ON:
             t_vib_start = timepfc()
             try:
-                vib_result = vib_img(base_name+".xyz")
+                vib_result = vib_img(base_name + ".xyz")
             except Exception as e:
                 print(f"Warning: Vibrations failed: {e}")
+                vib_result = [None, None, None, None]
             t_vib = timepfc() - t_vib_start
             t_vib_sum += t_vib
             write_result(
                 ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 'G [kcal/mol]'],
-                [t_vib]+vib_result
+                [t_vib] + vib_result
             )
             print(f"vibrations {t_vib} sec")
-        
+
         # == Other jobs ===================
         if g.OTHER_JOBS_EXAMPLE_ON:
             from ase.geometry import get_distances
@@ -179,7 +206,7 @@ def process_local_maxima():
 #            print(min_rmsd)
 #            write_result('RMSD [angs]', min_rmsd)
         # ==
-        
+
         # == Refinement ===================
         if g.REFINE_ENERGY_ON:
             t_refine_start = timepfc()
@@ -203,6 +230,7 @@ def process_local_maxima():
                 and 'energy [kcal/mol]' in df_new.columns
                 and pd.notna(df_new.at[df_new.index[idx], 'G [kcal/mol]'])
                 and pd.notna(df_new.at[df_new.index[idx], 'energy [kcal/mol]'])
+                and energy_ref_kcal is not None
             ):
                 thermal_corr_G = (
                     df_new.at[df_new.index[idx], 'G [kcal/mol]']
@@ -210,11 +238,12 @@ def process_local_maxima():
                 )
                 G_refine_kcal = energy_ref_kcal + thermal_corr_G
                 write_result('G_refine [kcal/mol] (HL//LL)', G_refine_kcal)
-                
+
             print(f"refinement {t_refine} sec")
         # ==
-        
+
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
+    write_line(g.TIME_LOG_NAME, txt)
     txt = f"* Refinement_Total      | {t_refine_sum:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
 
@@ -247,9 +276,11 @@ def get_pyscf_profile(calc_type):
     return profile
 
 def build_pyscf_method_common(atoms, base_name, profile):
-    from pyscf import M
+    from pyscf import M, lib
     from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
 
+    threads = profile.get("threads", os.environ.get("OMP_NUM_THREADS", os.cpu_count()))
+    lib.num_threads(threads)
     mol = M(
         atom=ase_atoms_to_pyscf(atoms),
         basis=profile.get("basis"),
@@ -314,6 +345,8 @@ def build_pyscf_3c(atoms, base_name, profile):
     if not str(config["xc"]).endswith("3c"):
         raise NotImplementedError("When a 3c profile is specified, the xc string must end with '3c'.")
 
+    if "max_cycle" in profile:
+        config.setdefault("scf_max_cycle", profile["max_cycle"])
     mf = build_3c_method(config)
     return PySCFCalculator(mf, xc_3c=profile["xc"])
 
@@ -359,7 +392,7 @@ def make_calculator(type, atoms, base_name):
 
 
 # Parse input trajectory
-from typing import List
+from typing import List, Optional
 
 def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: float = 0.01) -> List[str]:
     # Load all frames from trajectory
@@ -405,6 +438,109 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
         print(f"  → {filename} (energy = {energies[idx]:.6f})")
 
     return peak_files, g.PEAK_IDX
+
+
+def split_traj_to_xyz(trajfile: str, prefix: str) -> List[str]:
+    """
+    Split a trajectory into single-frame XYZ files.
+    """
+    traj = read(trajfile, index=":")
+    xyz_files = []
+
+    for i, atoms in enumerate(traj):
+        filename = f"{prefix}_{i}.xyz"
+        write(filename, atoms)
+        xyz_files.append(filename)
+
+    return xyz_files
+
+
+def select_highest_peak_file(peak_files: List[str]) -> Optional[str]:
+    """
+    Select the highest-energy internal peak from the detected peak files.
+    """
+    if len(peak_files) <= 2:
+        return None
+
+    max_energy = -np.inf
+    max_peak_file = None
+
+    for peak_file in peak_files[1:-1]:
+        atoms = read(peak_file)
+        try:
+            energy = atoms.get_potential_energy()
+        except Exception:
+            energy = -np.inf
+
+        if energy > max_energy:
+            max_energy = energy
+            max_peak_file = peak_file
+
+    return max_peak_file
+
+
+def make_optpoints_traj(
+    peak_files: List[str],
+    out_traj: str = "optpoints/optpoints.traj"
+) -> List[str]:
+    """
+    Build a reduced 3-point trajectory for downstream VIB/refinement jobs.
+
+    Intent:
+    - Keep the original DMF start and end structures as reference states.
+    - Use only one TS-like internal point, chosen as the highest-energy peak.
+    - Prefer the TS-optimized geometry for that point when available.
+
+    This mode is useful when IRC endpoints do not connect cleanly to
+    meaningful minima, but the original DMF endpoints should still be used
+    as Delta G reference states.
+    """
+    out_dir = os.path.dirname(out_traj)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+
+    if len(peak_files) < 2:
+        raise ValueError("peak_files must contain at least the two endpoints")
+
+    start_file = peak_files[0]
+    end_file = peak_files[-1]
+    middle_file = select_highest_peak_file(peak_files)
+
+    branch_plan = [
+        (start_file, 0),
+    ]
+    if middle_file is not None:
+        branch_plan.append((middle_file, int(os.path.splitext(middle_file)[0].split('_')[-1].split('.')[0])))
+    branch_plan.append((end_file, int(os.path.splitext(end_file)[0].split('_')[-1].split('.')[0])))
+    branch_indices = [prev_idx for _, prev_idx in branch_plan]
+    
+    branch_images = []
+    for src_file, previous_idx in branch_plan:
+        use_file = src_file
+        if src_file == middle_file:
+            base_name = os.path.splitext(middle_file)[0]
+            tsopt_file = base_name + "_tsopt.xyz"
+            if g.TSOPT_ON and os.path.exists(tsopt_file):
+                use_file = tsopt_file
+
+        atoms = read(use_file)
+        atoms.info["charge"] = g.CHARGE
+        atoms.info["spin"] = g.MULT
+        branch_images.append(atoms)
+
+    write(out_traj, branch_images)
+    traj_to_xyz(branch_images, out_traj + ".xyz")
+
+    xyz_prefix = os.path.splitext(out_traj)[0]
+    branch_xyz_files = split_traj_to_xyz(out_traj, xyz_prefix)
+
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{out_traj}")
+    g.SUGGESTIONS.append(
+        f"python3 sVIBmachine.py -d {g.CURRENT_DIR}/optpoints "
+        f"-c {g.CHARGE} -m {g.CALC_TYPE} -i {g.CURRENT_DIR}/{out_traj}"
+    )
+
+    return branch_xyz_files, branch_indices
 
 
 # Run MEP optimization with FB-ENM/DMF
@@ -515,6 +651,9 @@ def tsopt_img(xyz_name: str) -> Atoms:
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
+    if g.SELLA_INTERNAL_AUTO:
+        # Check the symmetry of the initial structure
+        _, _, g.SELLA_INTERNAL = get_symmetry_info(img, tol=1e-3)
     # Set up a Sella Dynamics object
     dyn = Sella(
         img, internal=g.SELLA_INTERNAL, order=1, constraints=None,
@@ -597,6 +736,87 @@ def refine_energy_img(xyz_name, refine_type="pyscf_high"):
     return [energy_eV, energy_kcal]
 
 # 
+def get_symmetry_info(atoms, tol=1e-3):
+    """
+    Analyze the point group of the molecule using PySCF and return
+    the geometry type ('linear'/'nonlinear') and symmetry number (sigma)
+    required for ASE's IdealGasThermo.
+    """
+    import re
+    from pyscf import gto, symm
+    
+    if len(atoms) == 1:
+        return 'monatomic', 1, True
+    orig_tol = symm.geom.TOLERANCE
+    symm.geom.TOLERANCE = tol
+    
+    try:
+        # Convert ASE Atoms to PySCF atom list format
+        atom_list = [[atom.symbol, atom.position] for atom in atoms]
+        
+        # Build a lightweight PySCF Mole object to detect symmetry
+        mol = gto.Mole()
+        mol.atom = atom_list
+        mol.charge = g.CHARGE
+        mol.spin = g.MULT - 1
+        mol.basis = {'default': [[0, (1.0, 1.0)]]} # Dummy basis just to allow build() to pass
+        mol.symmetry = True
+        mol.verbose = 0       # Suppress PySCF output
+        mol.build()
+        
+        pg = mol.topgroup
+    except Exception as e:
+        print(f"Warning: Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
+        return 'nonlinear', 1, True
+    finally:
+        symm.geom.TOLERANCE = orig_tol
+        
+    # Determine if the molecule is linear
+    geometry = 'linear' if pg in ['Cinfv', 'Dinfh'] else 'nonlinear'
+    
+    # Calculate symmetry number from the Point Group symbol
+    sym_num = 1
+    if pg == 'Cinfv':
+        sym_num = 1
+    elif pg == 'Dinfh':
+        sym_num = 2
+    elif pg in ['T', 'Td', 'Th']:
+        sym_num = 12
+    elif pg in ['O', 'Oh']:
+        sym_num = 24
+    elif pg in ['I', 'Ih']:
+        sym_num = 60
+    else:
+        # Parse C_n, D_n, S_n groups (e.g., "C3v" -> letter="C", n=3)
+        m = re.search(r'^([CDS])(\d+)', pg)
+        if m:
+            letter = m.group(1)
+            n = int(m.group(2))
+            if letter == 'C':
+                sym_num = n
+            elif letter == 'D':
+                sym_num = 2 * n
+            elif letter == 'S':
+                sym_num = n // 2
+
+    # Determine whether to use internal coordinates.
+    # Internal coordinates mathematically fail for linear molecules.
+    # High-symmetry planar/spherical groups (e.g., D3h, Oh) can also cause ODE solver singularities.
+    # Cs, C2v, etc., are perfectly safe for internal coordinates.
+    risky_point_groups = ['D3h', 'D4h', 'D6h', 'Td', 'Oh', 'Ih', 'C3v']
+    internal_safe = True
+    if geometry == 'linear':
+        internal_safe = False
+    elif pg in risky_point_groups:
+        internal_safe = False
+    print(
+        f"  [coords] Detected Point Group: {pg} -> "
+        f"geometry='{geometry}', symmetrynumber={sym_num}, "
+        f"internal_safe={internal_safe}"
+    )
+    return geometry, sym_num, internal_safe
+
+
 def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
     freqs = vib.get_frequencies()
     natoms = len(atoms)
@@ -637,68 +857,6 @@ def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
     write(output, images)
     print(f"[Info] Wrote {len(images)} frames to {output}")
 
-
-def get_symmetry_info(atoms):
-    """
-    Analyze the point group of the molecule using PySCF and return
-    the geometry type ('linear'/'nonlinear') and symmetry number (sigma)
-    required for ASE's IdealGasThermo.
-    """
-    import re
-    from pyscf import gto
-    
-    if len(atoms) == 1:
-        return 'monatomic', 1
-        
-    try:
-        # Convert ASE Atoms to PySCF atom list format
-        atom_list = [[atom.symbol, atom.position] for atom in atoms]
-        
-        # Build a lightweight PySCF Mole object to detect symmetry
-        mol = gto.Mole()
-        mol.atom = atom_list
-        mol.basis = 'sto-3g'  # Dummy basis just to allow build() to pass
-        mol.symmetry = True
-        mol.verbose = 0       # Suppress PySCF output
-        mol.build()
-        
-        pg = mol.topgroup
-    except Exception as e:
-        print(f"Warning: Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
-        return 'nonlinear', 1
-        
-    # Determine if the molecule is linear
-    geometry = 'linear' if pg in ['Cinfv', 'Dinfh'] else 'nonlinear'
-    
-    # Calculate symmetry number from the Point Group symbol
-    sym_num = 1
-    if pg == 'Cinfv':
-        sym_num = 1
-    elif pg == 'Dinfh':
-        sym_num = 2
-    elif pg in ['T', 'Td', 'Th']:
-        sym_num = 12
-    elif pg in ['O', 'Oh']:
-        sym_num = 24
-    elif pg in ['I', 'Ih']:
-        sym_num = 60
-    else:
-        # Parse C_n, D_n, S_n groups (e.g., "C3v" -> letter="C", n=3)
-        m = re.search(r'^([CDS])(\d+)', pg)
-        if m:
-            letter = m.group(1)
-            n = int(m.group(2))
-            if letter == 'C':
-                sym_num = n
-            elif letter == 'D':
-                sym_num = 2 * n
-            elif letter == 'S':
-                sym_num = n // 2
-                
-    print(f"  [Thermo] Detected Point Group: {pg} -> geometry='{geometry}', symmetrynumber={sym_num}")
-    return geometry, sym_num
-
-
 # Run vibrations and thermodynamics
 def vib_img(xyz_name):
     img = read(xyz_name)
@@ -722,7 +880,7 @@ def vib_img(xyz_name):
     # Use ignore_imag_modes=True
     vib_energies = vib.get_energies()
     # Dynamically obtain symmetry and geometry via PySCF
-    geom_type, sym_num = get_symmetry_info(img)
+    geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-4)
     
     thermo = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=electronic_energy,
@@ -759,7 +917,7 @@ def traj_to_xyz(traj, out_xyz_path):
     except Exception as e:
         print(f"Warning: An error occurred while writing {out_xyz_path}: {e}")
 
-def write_energies(traj_name, csv_name=None, energy_recalc=False):
+def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image=None):
     if not csv_name:
         csv_name = os.path.splitext(traj_name)[0] + "_energy.csv"
     data = []
@@ -798,6 +956,12 @@ def write_energies(traj_name, csv_name=None, energy_recalc=False):
     df = pd.DataFrame(data,
         columns=["# image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"]
         )
+    if previous_image is not None:
+        if len(previous_image) != len(df):
+            raise ValueError("Length of previous_image must match the number of frames")
+        df["previous_#image"] = previous_image
+        cols = ["# image", "previous_#image"] + [c for c in df.columns if c not in ["# image", "previous_#image"]]
+        df = df[cols]
     # Relative energy (kcal/mol)
     if df["energy [kcal/mol]"].notna().any():
         ref = df.loc[0, "energy [kcal/mol]"]
@@ -810,26 +974,37 @@ def write_energies(traj_name, csv_name=None, energy_recalc=False):
 
 # Finishing steps
 def finalize_run():
-    # Write relative energy (kcal/mol)
-    df = pd.read_csv(g.R_CSV)
-    if g.VIB_ON:
-        try:
-            if df["E_0K [kcal/mol]"].notna().any():
-                df["Delta E_0K vs. reactant [kcal/mol]"] = df["E_0K [kcal/mol]"] - df.loc[0, "E_0K [kcal/mol]"]
-            if df["H [kcal/mol]"].notna().any():
-                df["Delta H vs. reactant [kcal/mol]"] = df["H [kcal/mol]"] - df.loc[0, "H [kcal/mol]"]
-            if df["G [kcal/mol]"].notna().any():
-                df["Delta G vs. reactant [kcal/mol]"] = df["G [kcal/mol]"] - df.loc[0, "G [kcal/mol]"]
-            if "G_refine [kcal/mol] (HL//LL)" in df.columns and df["G_refine [kcal/mol] (HL//LL)"].notna().any():
-                df["Delta G_refine vs. reactant [kcal/mol] (HL//LL)"] = df["G_refine [kcal/mol] (HL//LL)"] - df.loc[0, "G_refine [kcal/mol] (HL//LL)"]
-            df.to_csv(g.R_CSV, index=False)
-        except Exception as e:
-            print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
-    
-    # plot
-    if g.SAVE_FIG_ON:
-        figname = f"fig_{os.path.splitext(os.path.basename(g.R_CSV))[0]}.png"
-        instant_plot(df, g.PEAK_IDX, figname)
+    csv_targets = []
+    if g.PICK_OPTPOINTS_ON and hasattr(g, 'ORIG_R_CSV'):
+        csv_targets.append((g.ORIG_R_CSV, g.PEAK_IDX))
+        csv_targets.append((g.R_CSV, None))
+    else:
+        csv_targets.append((g.R_CSV, g.PEAK_IDX))
+
+    for csv_file, peak_idx in csv_targets:
+        if not os.path.exists(csv_file):
+            continue
+
+        # Write relative energy (kcal/mol)
+        df = pd.read_csv(csv_file)
+        if g.VIB_ON:
+            try:
+                if df["E_0K [kcal/mol]"].notna().any():
+                    df["Delta E_0K vs. reactant [kcal/mol]"] = df["E_0K [kcal/mol]"] - df.loc[0, "E_0K [kcal/mol]"]
+                if df["H [kcal/mol]"].notna().any():
+                    df["Delta H vs. reactant [kcal/mol]"] = df["H [kcal/mol]"] - df.loc[0, "H [kcal/mol]"]
+                if df["G [kcal/mol]"].notna().any():
+                    df["Delta G vs. reactant [kcal/mol]"] = df["G [kcal/mol]"] - df.loc[0, "G [kcal/mol]"]
+                if "G_refine [kcal/mol] (HL//LL)" in df.columns and df["G_refine [kcal/mol] (HL//LL)"].notna().any():
+                    df["Delta G_refine vs. reactant [kcal/mol] (HL//LL)"] = df["G_refine [kcal/mol] (HL//LL)"] - df.loc[0, "G_refine [kcal/mol] (HL//LL)"]
+                df.to_csv(csv_file, index=False)
+            except Exception as e:
+                print(f"Warning: An error occurred while writing {csv_file}: {e}")
+        
+        # plot
+        if g.SAVE_FIG_ON:
+            figname = f"fig_{os.path.splitext(os.path.basename(csv_file))[0]}.png"
+            instant_plot(df, peak_idx, figname)
     
     # Suggest next steps
     if g.WRITE_SUGGESTIONS_ON and len(g.SUGGESTIONS)>0:
