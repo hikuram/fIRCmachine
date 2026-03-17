@@ -772,7 +772,8 @@ def get_symmetry_info(atoms, tol=1e-3):
         symm.geom.TOLERANCE = orig_tol
         
     # Determine if the molecule is linear
-    geometry = 'linear' if pg in ['Cinfv', 'Dinfh'] else 'nonlinear'
+    linear_groups = ['Cinfv', 'Dinfh', 'Coov', 'Dooh']
+    geometry = 'linear' if pg in linear_groups else 'nonlinear'
     
     # Calculate symmetry number from the Point Group symbol
     sym_num = 1
@@ -880,7 +881,7 @@ def vib_img(xyz_name):
     # Use ignore_imag_modes=True
     vib_energies = vib.get_energies()
     # Dynamically obtain symmetry and geometry via PySCF
-    geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-4)
+    geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
     
     thermo = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=electronic_energy,
