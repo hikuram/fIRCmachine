@@ -165,7 +165,9 @@ def export_pyscf_single_point(atoms, prefix="job"):
     # --- Export Molden ---
     molden_filename = f"{prefix}.molden"
     try:
-        molden.from_scf(mf_cpu, molden_filename)
+        with open (molden_filename, 'w') as f:
+          molden.header(mol, f)
+          molden.orbital_coeff(mol, f, mf_cpu.mo_coeff, ene=mf_cpu.mo_energy, occ=mf_cpu.mo_occ)
         print(f"Saved Molden file to {molden_filename}")
     except Exception as e:
         print(f"Warning: Molden export failed: {e}")

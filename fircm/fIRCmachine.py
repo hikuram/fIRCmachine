@@ -276,9 +276,11 @@ def get_pyscf_profile(calc_type):
     return profile
 
 def build_pyscf_method_common(atoms, base_name, profile):
-    from pyscf import M
+    from pyscf import M, lib
     from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
 
+    threads = profile.get("threads", os.environ.get("OMP_NUM_THREADS", os.cpu_count()))
+    lib.num_threads(threads)
     mol = M(
         atom=ase_atoms_to_pyscf(atoms),
         basis=profile.get("basis"),
@@ -343,6 +345,8 @@ def build_pyscf_3c(atoms, base_name, profile):
     if not str(config["xc"]).endswith("3c"):
         raise NotImplementedError("When a 3c profile is specified, the xc string must end with '3c'.")
 
+    if "max_cycle" in profile:
+        config.setdefault("scf_max_cycle", profile["max_cycle"])
     mf = build_3c_method(config)
     return PySCFCalculator(mf, xc_3c=profile["xc"])
 
@@ -753,7 +757,9 @@ def get_symmetry_info(atoms, tol=1e-3):
         # Build a lightweight PySCF Mole object to detect symmetry
         mol = gto.Mole()
         mol.atom = atom_list
-        mol.basis = 'sto-3g'  # Dummy basis just to allow build() to pass
+        mol.charge = g.CHARGE
+        mol.spin = g.MULT - 1
+        mol.basis = {'default': [[0, (1.0, 1.0)]]} # Dummy basis just to allow build() to pass
         mol.symmetry = True
         mol.verbose = 0       # Suppress PySCF output
         mol.build()
