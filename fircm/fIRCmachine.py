@@ -777,9 +777,9 @@ def get_symmetry_info(atoms, tol=1e-3):
     
     # Calculate symmetry number from the Point Group symbol
     sym_num = 1
-    if pg == 'Cinfv':
+    if pg in ['Cinfv', 'Coov']:
         sym_num = 1
-    elif pg == 'Dinfh':
+    elif pg in ['Dinfh', 'Dooh']:
         sym_num = 2
     elif pg in ['T', 'Td', 'Th']:
         sym_num = 12
