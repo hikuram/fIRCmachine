@@ -50,36 +50,59 @@ def _format_value_label(value: float) -> str:
     return f"{value:.8g}"
 
 
+def _build_optpoints_xticklabels(previous_images: np.ndarray):
+    """Build compact x tick labels for optpoints profile."""
+    labels = ["IS", "TS", "FS"]
+
+    if previous_images is None or len(previous_images) < 3:
+        return labels
+
+    out = []
+    for base, prev in zip(labels, previous_images[:3]):
+        if np.isfinite(prev):
+            out.append(f"{base}\n(img {int(prev)})")
+        else:
+            out.append(base)
+    return out
+
+
 def _plot_plateau_profile(
     ax: plt.Axes,
     values: np.ndarray,
     color,
     xticklabels,
-    previous_images=None,
-    plateau_half_width: float = 0.28,
+    column_index: int = 0,
+    ncols: int = 2,
+    plateau_half_width: float = 0.34,
+    connector_linewidth: float = 1.2,
+    plateau_linewidth: float = 2.0,
 ) -> None:
     """
     Plot a reaction-profile style figure with flat plateaus and connectors.
 
     Expected use:
     - 3-point optpoints profile
-    - values[0]: reactant
+    - values[0]: IS
     - values[1]: TS-like point
-    - values[2]: product
+    - values[2]: FS
     """
     x_centers = np.array([0.0, 1.0, 2.0], dtype=float)
 
     finite_vals = values[np.isfinite(values)]
     if finite_vals.size == 0:
         y_min, y_max = -1.0, 1.0
-        text_offset = 0.05
+        y_span = 1.0
     else:
         y_min = float(np.min(finite_vals))
         y_max = float(np.max(finite_vals))
         y_span = y_max - y_min
         if y_span < 1e-12:
             y_span = max(abs(y_max), 1.0) * 0.05
-        text_offset = 0.03 * y_span
+
+    # More headroom above labels
+    top_margin = 0.16 * y_span
+    bottom_margin = 0.06 * y_span
+    ax.set_ylim(y_min - bottom_margin, y_max + top_margin)
 
     # Draw plateau segments
     for xc, y in zip(x_centers, values):
@@ -90,7 +113,7 @@ def _plot_plateau_profile(
             xc - plateau_half_width,
             xc + plateau_half_width,
             color=color,
-            linewidth=2.0,
+            linewidth=plateau_linewidth,
         )
 
     # Draw connectors between plateaus
@@ -104,32 +127,38 @@ def _plot_plateau_profile(
             [x_centers[i] + plateau_half_width, x_centers[i + 1] - plateau_half_width],
             [y0, y1],
             color=color,
-            linewidth=1.2,
+            linewidth=connector_linewidth,
         )
 
     # Numeric labels
-    for i, (xc, y) in enumerate(zip(x_centers, values)):
+    text_offset_y = 0.035 * y_span
+
+    # Right column: shift labels a little to the right to reduce clashes
+    # column_index is zero-based in the flattened subplot array
+    is_right_column = (column_index % ncols) == 1
+    text_shift_x = 0.04 if is_right_column else 0.0
+
+    for xc, y in zip(x_centers, values):
         if not np.isfinite(y):
             continue
 
         label = _format_value_label(y)
-        if previous_images is not None and i < len(previous_images):
-            prev = previous_images[i]
-            if prev == prev:  # not NaN
-                label += f"\n(img {int(prev)})"
 
         ax.text(
-            xc,
-            y + text_offset,
+            xc + text_shift_x,
+            y + text_offset_y,
             label,
             ha="center",
             va="bottom",
             fontsize=8,
         )
 
-    ax.set_xlim(-0.5, 2.5)
+    ax.set_xlim(-0.55, 2.55)
     ax.set_xticks(x_centers)
     ax.set_xticklabels(xticklabels)
+
+    # Tick labels a bit closer to axis, but still readable
+    ax.tick_params(axis="x", pad=2)
 
 
 def instant_plot(dataframe, peak_idx, fig_name):
@@ -150,10 +179,11 @@ def instant_plot(dataframe, peak_idx, fig_name):
     palette = sns.color_palette("viridis_r", len(plot_cols))
     sns.set_palette(palette)
 
-    n_row = (len(plot_cols) + 1) // 2
-    plt.rcParams["figure.figsize"] = (12, 2 * n_row)
+    ncols = 2
+    n_row = (len(plot_cols) + ncols - 1) // ncols
+    plt.rcParams["figure.figsize"] = (12, 2.15 * n_row)
 
-    fig, axes = plt.subplots(n_row, 2, sharex=False)
+    fig, axes = plt.subplots(n_row, ncols, sharex=False)
     axes_flat = np.atleast_1d(axes).flatten()
 
     # 4. Detect optpoints-style dataframe
@@ -164,7 +194,7 @@ def instant_plot(dataframe, peak_idx, fig_name):
 
     if is_optpoints_profile:
         prev_images = _safe_float_array(dataframe["previous_#image"])
-        xticklabels = ["Reactant", "TS", "Product"]
+        xticklabels = _build_optpoints_xticklabels(prev_images)
     else:
         prev_images = None
         xticklabels = None
@@ -181,7 +211,9 @@ def instant_plot(dataframe, peak_idx, fig_name):
                 values=values,
                 color=palette[n],
                 xticklabels=xticklabels,
-                previous_images=prev_images,
+                column_index=n,
+                ncols=ncols,
+                plateau_half_width=0.30,
             )
         else:
             sns.lineplot(
@@ -199,12 +231,22 @@ def instant_plot(dataframe, peak_idx, fig_name):
                 for x in peak_idx:
                     if x in dataframe.index:
                         y = dataframe.loc[x, colname]
-                        if y == y:  # not NaN
-                            ax.text(x, y, _format_value_label(float(y)), ha="center", va="bottom", fontsize=8)
+                        if y == y:
+                            ax.text(
+                                x,
+                                y,
+                                _format_value_label(float(y)),
+                                ha="center",
+                                va="bottom",
+                                fontsize=8,
+                            )
 
     # 6. Hide unused axes
     for empty_ax in axes_flat[len(plot_cols):]:
         empty_ax.set_visible(False)
+
+    # 7. Extra space for two-line xticklabels
+    fig.tight_layout(pad=0.8, h_pad=0.6, w_pad=0.8)
 
     plt.savefig(fig_name)
     plt.close(fig)
