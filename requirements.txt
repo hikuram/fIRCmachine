@@ -8,8 +8,8 @@ seaborn
 
 # Electronic structure / optimization
 pyscf
-sella
-orb_models
+sella==2.3.5
+orb_models==0.5.5
 
 pydmf
 
@@ -19,6 +19,3 @@ tblite
 # GPU acceleration (optional)
 # gpu4pyscf
 # cupy
-
-# redox_benchmark: install via pip from GitHub (no deps)
-# pip install --no-deps git+https://github.com/hikuram/redox_benchmark.git
