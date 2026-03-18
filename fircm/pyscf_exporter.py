@@ -7,7 +7,7 @@ from pyscf.tools import molden
 
 def _to_numpy_recursive(value: Any) -> Any:
     """Convert CuPy-like arrays inside nested containers to NumPy/Python objects."""
-    if hasattr(value, "get"):
+    if hasattr(value, "get") and hasattr(value, "shape"):
         return value.get()
     if isinstance(value, np.ndarray):
         return value
@@ -21,13 +21,16 @@ def _to_numpy_recursive(value: Any) -> Any:
 
 def _resolve_pyscf_method(calc: Any) -> Any:
     """
-    Resolve the most relevant PySCF mean-field-like object from an ASE calculator.
+    Resolve the most useful PySCF mean-field-like object from an ASE calculator.
 
-    Priority:
+    Source priority:
     1. calc.method
     2. calc.method_scan
     3. calc.g_scanner.base
     4. calc.g_scanner.method
+
+    However, among available candidates, prefer one that already carries
+    runtime results needed for export.
     """
     if calc is None:
         raise RuntimeError("atoms.calc is None. No PySCF calculator is attached.")
@@ -46,16 +49,31 @@ def _resolve_pyscf_method(calc: Any) -> Any:
             ]
         )
 
+    valid = []
     for obj in candidates:
         if obj is None:
             continue
         if hasattr(obj, "mol"):
-            return obj
+            valid.append(obj)
 
-    raise RuntimeError(
-        "Could not resolve a PySCF method object from atoms.calc. "
-        "Expected one of: calc.method, calc.method_scan, or calc.g_scanner.base."
-    )
+    if not valid:
+        raise RuntimeError(
+            "Could not resolve a PySCF method object from atoms.calc. "
+            "Expected one of: calc.method, calc.method_scan, or calc.g_scanner.base."
+        )
+
+    def score(obj: Any) -> tuple[int, int]:
+        orbital_count = sum(
+            getattr(obj, attr, None) is not None
+            for attr in ("mo_coeff", "mo_energy", "mo_occ")
+        )
+        energy_count = sum(
+            getattr(obj, attr, None) is not None
+            for attr in ("e_tot", "converged")
+        )
+        return (orbital_count, energy_count)
+
+    return max(valid, key=score)
 
 
 def _make_cpu_reference_method(mf: Any) -> Any:
@@ -196,21 +214,25 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
     data: Dict[str, Any] = {}
     data["name"] = prefix
 
+    # Structure information
     data["symbols"] = [mol.atom_symbol(i) for i in range(mol.natm)]
     data["positions"] = mol.atom_coords(unit="ANG").tolist()
 
+    # Molecule settings
     data["charge"] = int(mol.charge)
     data["spin"] = int(mol.spin)
     data["basis"] = _safe_jsonify(mol.basis)
     data["ecp"] = _safe_jsonify(mol.ecp)
     data["symmetry"] = _safe_jsonify(mol.symmetry)
 
+    # DFT/SCF settings
     data["xc"] = _safe_jsonify(getattr(mf_src, "xc", getattr(mf_cpu, "xc", "HF")))
     data["nlc"] = _safe_jsonify(getattr(mf_src, "nlc", getattr(mf_cpu, "nlc", "")))
     data["disp"] = _safe_jsonify(getattr(mf_src, "disp", getattr(mf_cpu, "disp", None)))
     data["scf_conv_tol"] = _safe_jsonify(getattr(mf_src, "conv_tol", getattr(mf_cpu, "conv_tol", None)))
     data["max_cycle"] = _safe_jsonify(getattr(mf_src, "max_cycle", getattr(mf_cpu, "max_cycle", None)))
 
+    # Grid settings
     if hasattr(mf_src, "grids"):
         atom_grid = getattr(mf_src.grids, "atom_grid", None)
         if isinstance(atom_grid, tuple):
@@ -232,6 +254,7 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
         data["nlcgrids_atom_grid"] = _safe_jsonify(nlc_atom_grid)
         data["nlcgrids_level"] = _safe_jsonify(getattr(mf_src.nlcgrids, "level", None))
 
+    # Solvent settings
     with_solvent = getattr(mf_src, "with_solvent", None)
     if with_solvent is None:
         with_solvent = getattr(mf_cpu, "with_solvent", None)
@@ -245,6 +268,7 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
         data["solvent_name"] = None
         data["solvent_eps"] = None
 
+    # Energy results
     data["e_tot"] = _safe_jsonify(getattr(mf_cpu, "e_tot", None))
     data["e1"] = _safe_jsonify(scf_summary.get("e1", 0.0))
     data["e_coul"] = _safe_jsonify(scf_summary.get("coul", 0.0))
@@ -252,9 +276,11 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
     data["e_disp"] = _safe_jsonify(scf_summary.get("dispersion", 0.0))
     data["e_solvent"] = _safe_jsonify(scf_summary.get("e_solvent", 0.0))
 
+    # Orbital and population analysis
     _extract_orbital_info(mf_cpu, mol, data)
     _extract_population_info(mf_cpu, data)
 
+    # Export JSON
     json_filename = f"{prefix}_pyscf.json"
     try:
         with open(json_filename, "w", encoding="utf-8") as f:
@@ -263,16 +289,29 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
     except Exception as e:
         print(f"Warning: JSON export failed: {e}")
 
+    # Export Molden
     molden_filename = f"{prefix}.molden"
     try:
+        mo_coeff = _to_numpy_recursive(getattr(mf_cpu, "mo_coeff", None))
+        mo_energy = _to_numpy_recursive(getattr(mf_cpu, "mo_energy", None))
+        mo_occ = _to_numpy_recursive(getattr(mf_cpu, "mo_occ", None))
+
+        if mo_coeff is None or mo_energy is None or mo_occ is None:
+            raise RuntimeError(
+                "Missing orbital data for Molden export: "
+                f"mo_coeff={mo_coeff is None}, "
+                f"mo_energy={mo_energy is None}, "
+                f"mo_occ={mo_occ is None}"
+            )
+
         with open(molden_filename, "w", encoding="utf-8") as f:
             molden.header(mol, f)
             molden.orbital_coeff(
                 mol,
                 f,
-                _to_numpy_recursive(getattr(mf_cpu, "mo_coeff", None)),
-                ene=_to_numpy_recursive(getattr(mf_cpu, "mo_energy", None)),
-                occ=_to_numpy_recursive(getattr(mf_cpu, "mo_occ", None)),
+                mo_coeff,
+                ene=mo_energy,
+                occ=mo_occ,
             )
         print(f"Saved Molden file to {molden_filename}")
     except Exception as e:
