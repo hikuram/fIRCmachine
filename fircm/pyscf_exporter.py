@@ -23,20 +23,18 @@ def _resolve_pyscf_method(calc: Any) -> Any:
     """
     Resolve the most relevant PySCF mean-field-like object from an ASE calculator.
 
-    Supported cases:
-    - gpu4pyscf.tools.ase_interface.PySCF
-        - calc.method_scan
-        - calc.method
-    - custom 3c PySCFCalculator
-        - calc.method
-        - calc.g_scanner.base
+    Priority:
+    1. calc.method
+    2. calc.method_scan
+    3. calc.g_scanner.base
+    4. calc.g_scanner.method
     """
     if calc is None:
         raise RuntimeError("atoms.calc is None. No PySCF calculator is attached.")
 
     candidates = [
-        getattr(calc, "method_scan", None),
         getattr(calc, "method", None),
+        getattr(calc, "method_scan", None),
     ]
 
     g_scanner = getattr(calc, "g_scanner", None)
@@ -56,7 +54,7 @@ def _resolve_pyscf_method(calc: Any) -> Any:
 
     raise RuntimeError(
         "Could not resolve a PySCF method object from atoms.calc. "
-        "Expected one of: calc.method_scan, calc.method, or calc.g_scanner.base."
+        "Expected one of: calc.method, calc.method_scan, or calc.g_scanner.base."
     )
 
 
@@ -69,15 +67,12 @@ def _make_cpu_reference_method(mf: Any) -> Any:
     2. method -> to_cpu()
     3. already CPU object -> itself
     """
-    # Scanner object whose .base is the actual SCF object
     if hasattr(mf, "base") and hasattr(mf.base, "to_cpu"):
         return mf.base.to_cpu()
 
-    # Regular GPU mean-field object
     if hasattr(mf, "to_cpu"):
         return mf.to_cpu()
 
-    # Already CPU-side method
     return mf
 
 
@@ -106,7 +101,6 @@ def _copy_runtime_results(src: Any, dst: Any) -> None:
     if isinstance(src_summary, dict):
         dst.scf_summary = {k: _to_numpy_recursive(v) for k, v in src_summary.items()}
 
-    # Some wrappers keep solvent object only on src
     if getattr(dst, "with_solvent", None) is None and getattr(src, "with_solvent", None) is not None:
         dst.with_solvent = src.with_solvent
 
@@ -181,7 +175,7 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
 
     This function accepts either:
     - atoms with a PySCF-based ASE calculator attached, or
-    - an explicit PySCF method object via `method=...`
+    - an explicit PySCF method object via method=...
 
     It is designed to work for both:
     - gpu4pyscf ASE wrappers
@@ -202,25 +196,21 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
     data: Dict[str, Any] = {}
     data["name"] = prefix
 
-    # Structure
     data["symbols"] = [mol.atom_symbol(i) for i in range(mol.natm)]
     data["positions"] = mol.atom_coords(unit="ANG").tolist()
 
-    # Molecule settings
     data["charge"] = int(mol.charge)
     data["spin"] = int(mol.spin)
     data["basis"] = _safe_jsonify(mol.basis)
     data["ecp"] = _safe_jsonify(mol.ecp)
     data["symmetry"] = _safe_jsonify(mol.symmetry)
 
-    # DFT/SCF settings
     data["xc"] = _safe_jsonify(getattr(mf_src, "xc", getattr(mf_cpu, "xc", "HF")))
     data["nlc"] = _safe_jsonify(getattr(mf_src, "nlc", getattr(mf_cpu, "nlc", "")))
     data["disp"] = _safe_jsonify(getattr(mf_src, "disp", getattr(mf_cpu, "disp", None)))
     data["scf_conv_tol"] = _safe_jsonify(getattr(mf_src, "conv_tol", getattr(mf_cpu, "conv_tol", None)))
     data["max_cycle"] = _safe_jsonify(getattr(mf_src, "max_cycle", getattr(mf_cpu, "max_cycle", None)))
 
-    # Grids
     if hasattr(mf_src, "grids"):
         atom_grid = getattr(mf_src.grids, "atom_grid", None)
         if isinstance(atom_grid, tuple):
@@ -242,7 +232,6 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
         data["nlcgrids_atom_grid"] = _safe_jsonify(nlc_atom_grid)
         data["nlcgrids_level"] = _safe_jsonify(getattr(mf_src.nlcgrids, "level", None))
 
-    # Solvent
     with_solvent = getattr(mf_src, "with_solvent", None)
     if with_solvent is None:
         with_solvent = getattr(mf_cpu, "with_solvent", None)
@@ -256,7 +245,6 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
         data["solvent_name"] = None
         data["solvent_eps"] = None
 
-    # Energies
     data["e_tot"] = _safe_jsonify(getattr(mf_cpu, "e_tot", None))
     data["e1"] = _safe_jsonify(scf_summary.get("e1", 0.0))
     data["e_coul"] = _safe_jsonify(scf_summary.get("coul", 0.0))
@@ -267,7 +255,6 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
     _extract_orbital_info(mf_cpu, mol, data)
     _extract_population_info(mf_cpu, data)
 
-    # JSON
     json_filename = f"{prefix}_pyscf.json"
     try:
         with open(json_filename, "w", encoding="utf-8") as f:
@@ -276,7 +263,6 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
     except Exception as e:
         print(f"Warning: JSON export failed: {e}")
 
-    # Molden
     molden_filename = f"{prefix}.molden"
     try:
         with open(molden_filename, "w", encoding="utf-8") as f:
