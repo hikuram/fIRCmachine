@@ -136,7 +136,7 @@ def _plot_plateau_profile(
     # Right column: shift labels a little to the right to reduce clashes
     # column_index is zero-based in the flattened subplot array
     is_right_column = (column_index % ncols) == 1
-    text_shift_x = 0.02 if is_right_column else 0.0
+    text_shift_x = 0.00 if is_right_column else 0.0
 
     for xc, y in zip(x_centers, values):
         if not np.isfinite(y):
