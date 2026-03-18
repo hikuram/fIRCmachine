@@ -323,30 +323,41 @@ def build_pyscf_standard(atoms, base_name, profile):
     return PySCF(method=mf)
 
 def build_pyscf_3c(atoms, base_name, profile):
-    from redox.utils.pyscf_utils import PySCFCalculator, build_3c_method
+    from pyscf_3c import PySCFCalculator, build_3c_method
 
     config = {}
     config["xc"] = profile["xc"]
     config["charge"] = g.CHARGE
     config["spin"] = g.MULT - 1
     config["verbose"] = profile.get("verbose", 4)
-    config["output"] = base_name + '_pyscf.log'
+    config["output"] = base_name + "_pyscf.log"
     config["inputfile"] = [
         (ele, coord) for ele, coord in zip(atoms.get_chemical_symbols(), atoms.get_positions())
     ]
+    config["with_df"] = profile.get("with_df", True)
+    config["auxbasis"] = profile.get("auxbasis", "def2-universal-jkfit")
+    config["with_gpu"] = (g.DEVICE == "cuda")
+
+    if profile.get("conv_tol") is not None:
+        config["scf_conv_tol"] = profile["conv_tol"]
+    if "max_cycle" in profile:
+        config["scf_max_cycle"] = profile["max_cycle"]
+    if profile.get("grids_level") is not None:
+        config["grids"] = {"level": profile["grids_level"]}
+    if profile.get("nlcgrids_level") is not None:
+        config["nlcgrids"] = {"level": profile["nlcgrids_level"]}
+
     if profile.get("with_solvent", False):
         config["with_solvent"] = True
         config["solvent"] = {
             "method": profile.get("solvent_model", "SMD"),
             "eps": profile.get("eps", 78.3553),
-            "solvent": profile.get("solvent", "water")
+            "solvent": profile.get("solvent", "water"),
         }
 
     if not str(config["xc"]).endswith("3c"):
         raise NotImplementedError("When a 3c profile is specified, the xc string must end with '3c'.")
 
-    if "max_cycle" in profile:
-        config.setdefault("scf_max_cycle", profile["max_cycle"])
     mf = build_3c_method(config)
     return PySCFCalculator(mf, xc_3c=profile["xc"])
 
