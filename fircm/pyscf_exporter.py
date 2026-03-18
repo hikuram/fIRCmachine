@@ -180,9 +180,9 @@ def _extract_orbital_info(mf_cpu: Any, mol: Any, data: Dict[str, Any]) -> None:
 def _extract_population_info(mf_cpu: Any, data: Dict[str, Any]) -> None:
     try:
         mul_pop, dip_mom = mf_cpu.analyze(verbose=0)
-        data["mulliken_pop"] = _safe_jsonify(mul_pop[0])
-        data["mulliken_charge"] = _safe_jsonify(mul_pop[1])
-        data["dip_moment"] = _safe_jsonify(dip_mom)
+        data["mulliken_pop"] = mul_pop[0].tolist()
+        data["mulliken_charge"] = mul_pop[1].tolist()
+        data["dip_moment"] = dip_mom.tolist()
     except Exception as e:
         data["population_analysis_error"] = str(e)
 
