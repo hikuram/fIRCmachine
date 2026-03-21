@@ -1,5 +1,6 @@
 # Core scientific stack
-ase
+# ASE >= 3.28.0 is currently incompatible.
+ase==3.27.0
 numpy
 scipy
 pandas
