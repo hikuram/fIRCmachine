@@ -54,7 +54,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python dependencies (others)
 RUN pip3 install orb-models==0.5.5
-RUN pip3 install pandas morfeus-ml ase rmsd sella cyipopt pydmf
+RUN pip3 install pandas morfeus-ml ase==3.27.0 rmsd sella==2.3.5 cyipopt pydmf
 
 # alpb may require tblite>=0.5.0
 RUN pip3 install meson ninja
