@@ -533,10 +533,20 @@ def make_optpoints_traj(
             tsopt_file = base_name + "_tsopt.xyz"
             if g.TSOPT_ON and os.path.exists(tsopt_file):
                 use_file = tsopt_file
-
-        atoms = read(use_file)
-        atoms.info["charge"] = g.CHARGE
-        atoms.info["spin"] = g.MULT
+        # 
+        if g.OPT_OPTPOINTS_AGAIN_ON:
+            if src_file == middle_file:
+                atoms = tsopt_img(use_file)
+            else:
+                if g.USE_SELLA_IN_OPT:
+                    atoms = opt_sella_img(use_file)
+                else:
+                    atoms = opt_img(use_file)
+        else :
+            atoms = read(use_file)
+            atoms.info["charge"] = g.CHARGE
+            atoms.info["spin"] = g.MULT
+        
         branch_images.append(atoms)
 
     write(out_traj, branch_images)
