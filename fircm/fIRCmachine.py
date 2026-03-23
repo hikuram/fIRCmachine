@@ -26,7 +26,8 @@ from pyscf_exporter import export_pyscf_single_point
 
 # --- Separated Modules ---
 from ase_calculators import make_calculator
-from traj_utils import extract_peaks_from_traj, select_highest_peak_file, traj_to_xyz, write_energies
+from traj_utils import extract_peaks_from_traj, traj_to_xyz, write_energies, \
+    split_traj_to_xyz, select_highest_peak_file
 
 # Overwrite global variables
 #g.INIT_PATH_SEARCH_ON = False
