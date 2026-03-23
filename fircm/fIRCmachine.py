@@ -1,10 +1,10 @@
 import os
 import sys
-import json
 import shutil
 import argparse
 from datetime import datetime
 from time import perf_counter as timepfc
+from typing import List
 
 # Third-party
 import numpy as np
@@ -15,8 +15,6 @@ from ase.io.trajectory import Trajectory
 from ase.optimize import LBFGS
 from ase.vibrations import Vibrations
 from ase.thermochemistry import IdealGasThermo
-from scipy.signal import find_peaks
-import cupy
 
 # Project modules
 import default_config as g
@@ -25,6 +23,10 @@ from dmf import DirectMaxFlux, interpolate_fbenm
 from sella import Sella, Constraints
 from sella_ext_AdaptiveIRC import AdaptiveIRC
 from pyscf_exporter import export_pyscf_single_point
+
+# --- Separated Modules ---
+from ase_calculators import make_calculator
+from traj_utils import extract_peaks_from_traj, select_highest_peak_file, traj_to_xyz, write_energies
 
 # Overwrite global variables
 #g.INIT_PATH_SEARCH_ON = False
@@ -138,9 +140,6 @@ def process_local_maxima():
         g.SUGGESTIONS.append(f"python3 cattraj.py -i{irc_trajs_str} -o {g.CURRENT_DIR}/irc_cat/irc_cat.traj")
 
     # Optional workflow: pick representative optimized points for thermochemistry.
-    # Instead of using all detected peaks, this mode builds a reduced
-    # trajectory containing only the original start state, one highest-energy
-    # TS-like point, and the original end state.
     vib_files = peak_files
     if g.PICK_OPTPOINTS_ON:
         g.ORIG_R_CSV = g.R_CSV
@@ -175,37 +174,6 @@ def process_local_maxima():
                 [t_vib] + vib_result
             )
             print(f"vibrations {t_vib} sec")
-
-        # == Other jobs ===================
-        if g.OTHER_JOBS_EXAMPLE_ON:
-            from ase.geometry import get_distances
-            _, iadist = get_distances(atoms.positions, atoms.positions[0])
-            print(iadist[1][0])
-            write_result('distance(1, 0) [angs]', iadist[1][0])
-            
-#            from morfeus import SASA
-#            sasa = SASA(atoms.symbols, atoms.positions, probe_radius=1.4)
-#            print(sasa.atom_areas[1])
-#            write_result('SASA [angs^2]', sasa.atom_areas[1])
-#            
-#            from morfeus import BiteAngle
-#            ba = BiteAngle(atoms.positions, BA_idx[0], BA_idx[1], BA_idx[2])
-#            print(ba.angle)
-#            write_result('SASA [angs^2]', sasa.atom_areas[1])
-#            
-#            from morfeus import SolidAngle
-#            sa = SolidAngle(atoms.symbols, atoms.positions, 1)
-#            print(sa.solid_angle)
-#            print(sa.G)
-#            write_result(['Solid angle [sr]', 'G parameter [%]'], [sa.solid_angle, sa.G])
-#            
-#            import rmsd
-#            ref = atoms[0]
-#            tgt = atoms[1]
-#            min_rmsd = rmsd.kabsch_rmsd(ref, tgt)
-#            print(min_rmsd)
-#            write_result('RMSD [angs]', min_rmsd)
-        # ==
 
         # == Refinement ===================
         if g.REFINE_ENERGY_ON:
@@ -246,322 +214,6 @@ def process_local_maxima():
     write_line(g.TIME_LOG_NAME, txt)
     txt = f"* Refinement_Total      | {t_refine_sum:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
-
-# PySCF config cache
-_PYSCF_CONFIG_CACHE = None
-_PYSCF_PROFILE_CACHE = {}
-
-def load_pyscf_config():
-    global _PYSCF_CONFIG_CACHE
-    if _PYSCF_CONFIG_CACHE is None:
-        default_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyscf_config.json")
-        config_path = getattr(g, "PYSCF_CONFIG_FILE", default_path)
-        with open(config_path, "r", encoding="utf-8") as f:
-            _PYSCF_CONFIG_CACHE = json.load(f)
-    return _PYSCF_CONFIG_CACHE
-
-def get_pyscf_profile(calc_type):
-    global _PYSCF_PROFILE_CACHE
-    if calc_type in _PYSCF_PROFILE_CACHE:
-        return _PYSCF_PROFILE_CACHE[calc_type]
-
-    config = load_pyscf_config()
-    if calc_type not in config:
-        raise KeyError(f"Missing PySCF profile in config: {calc_type}")
-
-    profile = dict(config[calc_type])
-    profile["calc_type"] = calc_type
-    profile["is_3c"] = str(profile.get("xc", "")).endswith("3c")
-    _PYSCF_PROFILE_CACHE[calc_type] = profile
-    return profile
-
-def build_pyscf_method_common(atoms, base_name, profile):
-    from pyscf import M, lib
-    from pyscf.pbc.tools.pyscf_ase import ase_atoms_to_pyscf
-
-    threads = profile.get("threads", os.environ.get("OMP_NUM_THREADS", os.cpu_count()))
-    lib.num_threads(threads)
-    mol = M(
-        atom=ase_atoms_to_pyscf(atoms),
-        basis=profile.get("basis"),
-        ecp=profile.get("ecp"),
-        charge=g.CHARGE,
-        spin=g.MULT - 1,
-        output=base_name + '_pyscf.log',
-        verbose=profile.get("verbose", 4)
-    )
-    mf = mol.RKS(
-        xc=profile["xc"],
-        disp=profile.get("disp"),
-        conv_tol=profile.get("conv_tol", 6e-10),
-        max_cycle=profile.get("max_cycle", 400)
-    )
-
-    if profile.get("with_solvent", False):
-        solvent_model = str(profile.get("solvent_model", "")).upper()
-        if solvent_model == "SMD":
-            mf = mf.SMD()
-        else:
-            raise NotImplementedError(f"Unsupported solvent model: {solvent_model}")
-        mf.with_solvent.solvent = profile.get("solvent", "water")
-        if profile.get("eps") is not None:
-            mf.with_solvent.eps = profile["eps"]
-
-    mf.grids.level = profile.get("grids_level", 5)
-    if hasattr(mf, "nlcgrids") and profile.get("nlcgrids_level") is not None:
-        mf.nlcgrids.level = profile.get("nlcgrids_level")
-
-    if g.DEVICE == "cuda":
-        cupy.get_default_memory_pool().free_all_blocks()
-        mf = mf.to_gpu()
-    return mf
-
-def build_pyscf_standard(atoms, base_name, profile):
-    from gpu4pyscf.tools.ase_interface import PySCF
-
-    mf = build_pyscf_method_common(atoms, base_name, profile)
-    return PySCF(method=mf)
-
-def build_pyscf_3c(atoms, base_name, profile):
-    from pyscf_3c import PySCFCalculator, build_3c_method
-
-    config = {}
-    config["xc"] = profile["xc"]
-    config["charge"] = g.CHARGE
-    config["spin"] = g.MULT - 1
-    config["verbose"] = profile.get("verbose", 4)
-    config["output"] = base_name + "_pyscf.log"
-    config["inputfile"] = [
-        (ele, coord) for ele, coord in zip(atoms.get_chemical_symbols(), atoms.get_positions())
-    ]
-    config["with_df"] = profile.get("with_df", True)
-    config["auxbasis"] = profile.get("auxbasis", "def2-universal-jkfit")
-    config["with_gpu"] = (g.DEVICE == "cuda")
-
-    if profile.get("conv_tol") is not None:
-        config["scf_conv_tol"] = profile["conv_tol"]
-    if "max_cycle" in profile:
-        config["scf_max_cycle"] = profile["max_cycle"]
-    if profile.get("grids_level") is not None:
-        config["grids"] = {"level": profile["grids_level"]}
-    if profile.get("nlcgrids_level") is not None:
-        config["nlcgrids"] = {"level": profile["nlcgrids_level"]}
-
-    if profile.get("with_solvent", False):
-        config["with_solvent"] = True
-        config["solvent"] = {
-            "method": profile.get("solvent_model", "SMD"),
-            "eps": profile.get("eps", 78.3553),
-            "solvent": profile.get("solvent", "water"),
-        }
-
-    if not str(config["xc"]).endswith("3c"):
-        raise NotImplementedError("When a 3c profile is specified, the xc string must end with '3c'.")
-
-    mf = build_3c_method(config)
-    return PySCFCalculator(mf, xc_3c=profile["xc"])
-
-# Set calculator
-def make_calculator(type, atoms, base_name):
-    # PySCF
-    if type in ["pyscf", "pyscf_high"]:
-        profile = get_pyscf_profile(type)
-        if profile["is_3c"]:
-            calculator = build_pyscf_3c(atoms, base_name, profile)
-        else:
-            calculator = build_pyscf_standard(atoms, base_name, profile)
-
-    # orbmol
-    elif type == "orbmol":
-        from orb_models.forcefield import pretrained
-        from orb_models.forcefield.calculator import ORBCalculator
-        orbff = pretrained.orb_v3_conservative_omol(
-            device=g.DEVICE,
-            precision="float64",   # "float32"/ "float32-highest"/ "float64"
-        )
-        calculator = ORBCalculator(orbff, device=g.DEVICE)
-
-    # orbmol+alpb
-    elif type == "orbmol+alpb":
-        from orb_models.forcefield import pretrained
-        from orb_models.forcefield.calculator import ORBCalculator
-        from ase.calculators.mixing import LinearCombinationCalculator
-        from dual_tblite_delta import DualTBLite
-        orbff = pretrained.orb_v3_conservative_omol(
-            device=g.DEVICE,
-            precision="float64",   # "float32"/ "float32-highest"/ "float64"
-        )
-        solvation = ("alpb", "water")
-        acc = 0.02
-        calc_mlip =  ORBCalculator(orbff, device=g.DEVICE)
-        calc_delta = DualTBLite(method="GFN1-xTB", charge=g.CHARGE, multiplicity=g.MULT, solvation=solvation, accuracy=acc, verbosity=0)
-        calculator = LinearCombinationCalculator([calc_mlip, calc_delta], [1, 1])
-
-    else:
-        sys.exit("error: incorrect calc type")
-    return calculator
-
-
-# Parse input trajectory
-from typing import List, Optional
-
-def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: float = 0.01) -> List[str]:
-    # Load all frames from trajectory
-    traj = read(trajfile, index=':')
-    energies = []
-    for i, atoms in enumerate(traj):
-        try:
-            energy = atoms.get_potential_energy()
-        except Exception as e:
-            print(f"Warning: missing value for {trajfile} atom {i}: {e}")
-            energy = np.nan
-        energies.append(energy)
-    energies = np.array(energies)
-
-    # Fill NaN
-    def forward_fill_nan(arr):
-        filled = arr.copy()
-        last_valid = np.nan
-        for i in range(len(filled)):
-            if not np.isnan(filled[i]):
-                last_valid = filled[i]
-            else:
-                filled[i] = last_valid
-        return filled
-    energies_filled = forward_fill_nan(energies)
-
-    # peak detection
-    peaks, _ = find_peaks(energies_filled, prominence=prominence)
-    # Input basename (e.g., input.xyz -> input)
-    base_name = os.path.splitext(os.path.basename(maxima_filename))[0]
-    print(f"Detected {len(peaks)} peak(s). Saving structures:")
-    peak_files = []
-    
-    # Add first and last frames
-    endpoints = np.array([0, len(traj) - 1])
-    g.PEAK_IDX = np.unique(np.concatenate([peaks, endpoints]))
-
-    for idx in g.PEAK_IDX:
-        atoms = traj[idx]
-        filename = f"{base_name}_{idx}.xyz"
-        peak_files.append(filename)
-        write(filename, atoms)
-        print(f"  → {filename} (energy = {energies[idx]:.6f})")
-
-    return peak_files, g.PEAK_IDX
-
-
-def split_traj_to_xyz(trajfile: str, prefix: str) -> List[str]:
-    """
-    Split a trajectory into single-frame XYZ files.
-    """
-    traj = read(trajfile, index=":")
-    xyz_files = []
-
-    for i, atoms in enumerate(traj):
-        filename = f"{prefix}_{i}.xyz"
-        write(filename, atoms)
-        xyz_files.append(filename)
-
-    return xyz_files
-
-
-def select_highest_peak_file(peak_files: List[str]) -> Optional[str]:
-    """
-    Select the highest-energy internal peak from the detected peak files.
-    """
-    if len(peak_files) <= 2:
-        return None
-
-    max_energy = -np.inf
-    max_peak_file = None
-
-    for peak_file in peak_files[1:-1]:
-        atoms = read(peak_file)
-        try:
-            energy = atoms.get_potential_energy()
-        except Exception:
-            energy = -np.inf
-
-        if energy > max_energy:
-            max_energy = energy
-            max_peak_file = peak_file
-
-    return max_peak_file
-
-
-def make_optpoints_traj(
-    peak_files: List[str],
-    out_traj: str = "optpoints/optpoints.traj"
-) -> List[str]:
-    """
-    Build a reduced 3-point trajectory for downstream VIB/refinement jobs.
-
-    Intent:
-    - Keep the original DMF start and end structures as reference states.
-    - Use only one TS-like internal point, chosen as the highest-energy peak.
-    - Prefer the TS-optimized geometry for that point when available.
-
-    This mode is useful when IRC endpoints do not connect cleanly to
-    meaningful minima, but the original DMF endpoints should still be used
-    as Delta G reference states.
-    """
-    out_dir = os.path.dirname(out_traj)
-    if out_dir and not os.path.exists(out_dir):
-        os.makedirs(out_dir, exist_ok=True)
-
-    if len(peak_files) < 2:
-        raise ValueError("peak_files must contain at least the two endpoints")
-
-    start_file = peak_files[0]
-    end_file = peak_files[-1]
-    middle_file = select_highest_peak_file(peak_files)
-
-    branch_plan = [
-        (start_file, 0),
-    ]
-    if middle_file is not None:
-        branch_plan.append((middle_file, int(os.path.splitext(middle_file)[0].split('_')[-1].split('.')[0])))
-    branch_plan.append((end_file, int(os.path.splitext(end_file)[0].split('_')[-1].split('.')[0])))
-    branch_indices = [prev_idx for _, prev_idx in branch_plan]
-    
-    branch_images = []
-    for src_file, previous_idx in branch_plan:
-        use_file = src_file
-        if src_file == middle_file:
-            base_name = os.path.splitext(middle_file)[0]
-            tsopt_file = base_name + "_tsopt.xyz"
-            if g.TSOPT_ON and os.path.exists(tsopt_file):
-                use_file = tsopt_file
-        # 
-        if g.OPT_OPTPOINTS_AGAIN_ON:
-            if src_file == middle_file:
-                atoms = tsopt_img(use_file)
-            else:
-                if g.USE_SELLA_IN_OPT:
-                    atoms = opt_sella_img(use_file)
-                else:
-                    atoms = opt_img(use_file)
-        else :
-            atoms = read(use_file)
-            atoms.info["charge"] = g.CHARGE
-            atoms.info["spin"] = g.MULT
-        
-        branch_images.append(atoms)
-
-    write(out_traj, branch_images)
-    traj_to_xyz(branch_images, out_traj + ".xyz")
-
-    xyz_prefix = os.path.splitext(out_traj)[0]
-    branch_xyz_files = split_traj_to_xyz(out_traj, xyz_prefix)
-
-    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{out_traj}")
-    g.SUGGESTIONS.append(
-        f"python3 sVIBmachine.py -d {g.CURRENT_DIR}/optpoints "
-        f"-c {g.CHARGE} -m {g.CALC_TYPE} -i {g.CURRENT_DIR}/{out_traj}"
-    )
-
-    return branch_xyz_files, branch_indices
 
 
 # Run MEP optimization with FB-ENM/DMF
@@ -923,76 +575,68 @@ def vib_img(xyz_name):
     
     return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal]
 
-
-# Convert traj to xyz
-def traj_to_xyz(traj, out_xyz_path):
+def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoints.traj") -> List[str]:
     """
-    Convert ASE traj to .xyz
-
-    Parameters:
-        traj (list of ase.Atoms), out_xyz_path (str): .xyz
+    Build a reduced 3-point trajectory (start, highest TS-like peak, end) 
+    for downstream VIB/refinement jobs.
     """
-    try:
-        for atoms in traj:
-            atoms.info = {str(k): v for k, v in atoms.info.items()}
-        write(out_xyz_path, traj)
-    except Exception as e:
-        print(f"Warning: An error occurred while writing {out_xyz_path}: {e}")
 
-def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image=None):
-    if not csv_name:
-        csv_name = os.path.splitext(traj_name)[0] + "_energy.csv"
-    data = []
-    tmp_name = traj_name + ".tmp"
-    if energy_recalc:
-        traj_out = Trajectory(tmp_name, "w")
-    else:
-        traj_out = None
+    out_dir = os.path.dirname(out_traj)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
 
-    traj_in = Trajectory(traj_name)
-    try:
-        for i, atoms in enumerate(traj_in):
-            if energy_recalc:
-                atoms.info = {"charge": g.CHARGE, "spin": g.MULT}
-                atoms.calc = make_calculator(g.CALC_TYPE, atoms, "energy_recalc")
-                #atoms.calc = make_calculator(g.CALC_TYPE, atoms, f"energy_recalc_{i}")
-            try:
-                energy_ev = atoms.get_potential_energy()
-                energy_hartree = energy_ev * g.EV_TO_HARTREE
-                energy_kcal = energy_ev * g.EV_TO_KCAL_MOL
-                data.append([i, energy_ev, energy_hartree, energy_kcal])
-            except Exception as e:
-                print(f"Warning: missing value for {traj_name} frame {i}: {e}")
-                data.append([i, None, None, None])
-            if energy_recalc:
-                traj_out.write(atoms)
-                atoms.calc = None
-                del atoms
-    finally:
-        traj_in.close()
-        if traj_out is not None:
-            traj_out.close()
-    if energy_recalc:
-        os.replace(tmp_name, traj_name)
+    if len(peak_files) < 2:
+        raise ValueError("peak_files must contain at least the two endpoints")
+
+    start_file = peak_files[0]
+    end_file = peak_files[-1]
+    middle_file = select_highest_peak_file(peak_files)
+
+    branch_plan = [(start_file, 0)]
+    if middle_file is not None:
+        branch_plan.append((middle_file, int(os.path.splitext(middle_file)[0].split('_')[-1].split('.')[0])))
+    branch_plan.append((end_file, int(os.path.splitext(end_file)[0].split('_')[-1].split('.')[0])))
+    branch_indices = [prev_idx for _, prev_idx in branch_plan]
+    
+    branch_images = []
+    for src_file, previous_idx in branch_plan:
+        use_file = src_file
+        if src_file == middle_file:
+            base_name = os.path.splitext(middle_file)[0]
+            tsopt_file = base_name + "_tsopt.xyz"
+            if g.TSOPT_ON and os.path.exists(tsopt_file):
+                use_file = tsopt_file
         
-    df = pd.DataFrame(data,
-        columns=["# image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"]
-        )
-    if previous_image is not None:
-        if len(previous_image) != len(df):
-            raise ValueError("Length of previous_image must match the number of frames")
-        df["previous_#image"] = previous_image
-        cols = ["# image", "previous_#image"] + [c for c in df.columns if c not in ["# image", "previous_#image"]]
-        df = df[cols]
-    # Relative energy (kcal/mol)
-    if df["energy [kcal/mol]"].notna().any():
-        ref = df.loc[0, "energy [kcal/mol]"]
-        df["Delta E vs. reactant [kcal/mol]"] = df["energy [kcal/mol]"] - ref
-    else:
-        df["Delta E vs. reactant [kcal/mol]"] = None
-    # Write
-    df.to_csv(csv_name, index=False)
+        # Optimize again if requested
+        if g.OPT_OPTPOINTS_AGAIN_ON:
+            if src_file == middle_file:
+                atoms = tsopt_img(use_file)
+            else:
+                if g.USE_SELLA_IN_OPT:
+                    atoms = opt_sella_img(use_file)
+                else:
+                    atoms = opt_img(use_file)
+        else :
+            atoms = read(use_file)
+            atoms.info["charge"] = g.CHARGE
+            atoms.info["spin"] = g.MULT
+        
+        branch_images.append(atoms)
 
+    write(out_traj, branch_images)
+    traj_to_xyz(branch_images, out_traj + ".xyz")
+
+    xyz_prefix = os.path.splitext(out_traj)[0]
+    branch_xyz_files = split_traj_to_xyz(out_traj, xyz_prefix)
+
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{out_traj}")
+    g.SUGGESTIONS.append(
+        f"python3 sVIBmachine.py -d {g.CURRENT_DIR}/optpoints "
+        f"-c {g.CHARGE} -m {g.CALC_TYPE} -i {g.CURRENT_DIR}/{out_traj}"
+    )
+
+    return branch_xyz_files, branch_indices
+    
 
 # Finishing steps
 def finalize_run():
