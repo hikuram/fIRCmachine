@@ -519,14 +519,12 @@ def calc_qRRHO_G_correction(vib_energies_eV, T=298.15, cutoff_cm1=100.0):
     nu_0 = cutoff_cm1 * c # Convert cutoff frequency to Hz
     S_HO_tot = 0.0
     S_qRRHO_tot = 0.0
-    
     for E_eV in vib_energies_eV:
         # Ignore imaginary frequencies and exactly zero frequencies
-        if E_eV <= 0:
+        if np.iscomplex(E_eV) or np.real(E_eV) <= 0.0:
             continue
-            
         # Energy to frequency (Hz)
-        E_J = E_eV * const.e
+        E_J = float(np.real(E_eV)) * const.e
         nu = E_J / h
         # x = h * nu / (k_B * T)
         x = E_J / (k_B * T)
@@ -615,7 +613,8 @@ def vib_img(xyz_name):
 
     # Ideal-gas limit
     # Use ignore_imag_modes=True
-    vib_energies = vib.get_energies() # Units: eV
+    raw_vib_energies = vib.get_energies() # Units: eV
+    vib_energies = [float(e.real) for e in raw_vib_energies if not np.iscomplex(e) and e.real > 0]
     # Dynamically obtain symmetry and geometry via PySCF
     geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
     
