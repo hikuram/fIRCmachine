@@ -2,6 +2,7 @@ import time
 import copy
 import numpy as np
 from sella.optimize.irc import IRC, IRCInnerLoopConvergenceFailure
+from utils import log
 
 
 class AdaptiveIRC(IRC):
@@ -111,8 +112,10 @@ class AdaptiveIRC(IRC):
     def _accepted_stepno(self):
         return self.accepted_steps + 1
 
-    def _write_msg(self, msg):
-        print(msg, end="")
+    def _write_msg(self, msg, tag="IRC"):
+        # Format for console using the new standard log, while keeping the original string for the logfile
+        console_msg = msg.strip().replace("[AdaptiveIRC] ", "")
+        log(tag, console_msg)
         if self.logfile is not None:
             self.logfile.write(msg)
             self.logfile.flush()
@@ -136,7 +139,7 @@ class AdaptiveIRC(IRC):
 
         direction = kwargs.get('direction', 'forward')
         msg = f"  [AdaptiveIRC] Starting new run (direction={direction}). Reset dx to {self.dx:.4f}\n"
-        self._write_msg(msg)
+        self._write_msg(msg, tag="IRC")
 
         return super().run(*args, **kwargs)
 
@@ -168,7 +171,7 @@ class AdaptiveIRC(IRC):
                     f"  [AdaptiveIRC] Step {stepno:d} failed "
                     f"({error_name}: {error_msg}) at dx={self.dx:.4f}.\n"
                 )
-                self._write_msg(msg)
+                self._write_msg(msg, tag="Warn")
 
                 # First, try same-point retry with smaller dx
                 if same_point_retry_count < self.same_point_max_retries:
@@ -185,7 +188,7 @@ class AdaptiveIRC(IRC):
                             f"  [AdaptiveIRC] Step {stepno:d}: restored same point. "
                             f"Retrying with smaller dx={self.dx:.4f} ...\n"
                         )
-                        self._write_msg(retry_msg)
+                        self._write_msg(retry_msg, tag="IRC")
                         continue
 
                 # Next, roll back to older accepted points.
@@ -213,7 +216,7 @@ class AdaptiveIRC(IRC):
                             f"  [AdaptiveIRC] Step {stepno:d}: rolling back {rollback_steps:d} "
                             f"accepted step(s); dx {old_dx:.4f} -> {self.dx:.4f}.\n"
                         )
-                        self._write_msg(rb_msg)
+                        self._write_msg(rb_msg, tag="IRC")
                         continue
 
                 # No more rollback options: only succeed if convergence is genuinely satisfied
@@ -226,7 +229,7 @@ class AdaptiveIRC(IRC):
                         f"but convergence criteria are satisfied "
                         f"(lambda_min={lam_min:.6e}, eig_tol={self.eig_tol:.6e}). Stopping.\n"
                     )
-                    self._write_msg(msg_conv)
+                    self._write_msg(msg_conv, tag="IRC")
                     break
 
                 try:
@@ -243,9 +246,7 @@ class AdaptiveIRC(IRC):
                     f"lambda_min={lam_min:.6e}, eig_tol={self.eig_tol:.6e}, "
                     f"dx={self.dx:.4f}.\n"
                 )
-                if self.logfile is not None:
-                    self.logfile.write(abort_msg)
-                    self.logfile.flush()
+                self._write_msg(f"  [AdaptiveIRC] {abort_msg}", tag="Fail")
                 raise RuntimeError(abort_msg.strip()) from e
 
             else:
@@ -266,7 +267,7 @@ class AdaptiveIRC(IRC):
                             f"  [AdaptiveIRC] Step {self.accepted_steps:d}: path looks stable. "
                             f"Increasing dx: {old_dx:.4f} -> {self.dx:.4f}\n"
                         )
-                        self._write_msg(msg)
+                        self._write_msg(msg, tag="IRC")
                     self.consecutive_successes = 0
 
                 break

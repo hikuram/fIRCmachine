@@ -29,14 +29,12 @@ from pyscf_exporter import export_pyscf_single_point
 from ase_calculators import make_calculator
 from traj_utils import extract_peaks_from_traj, traj_to_xyz, write_energies, \
     split_traj_to_xyz, select_highest_peak_file
+from utils import log
 
 # Overwrite global variables
 #g.INIT_PATH_SEARCH_ON = False
 # Example settings are described in README or default_config.py.
 
-def log(tag: str, msg: str):
-    """Helper function to standardize terminal output format."""
-    print(f"[{tag:<6}] {msg}")
 
 # FB-ENM/DMF optimization (first stage)
 def run_initial_path_search():
@@ -648,8 +646,9 @@ def vib_img(xyz_name):
         atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
         ignore_imag_modes=True
     )
-    G_eV_std = thermo_std.get_gibbs_energy(temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE)
-
+    G_eV_std = thermo_std.get_gibbs_energy(
+        temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
+    )
     # 2. Grimme's qRRHO Correction (default)
     cutoff = 100.0
     delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=cutoff)
@@ -665,13 +664,15 @@ def vib_img(xyz_name):
         atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
         ignore_imag_modes=True
     )
-    G_eV_floor = thermo_floor.get_gibbs_energy(temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE)
+    G_eV_floor = thermo_floor.get_gibbs_energy(
+        temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
+    )
     log("Thermo", f"Calculated Truhlar's Floor correction (floor: {floor_x} cm^-1)")
 
     # Convert everything to kcal/mol
     zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
     E_0K_kcal = g.EV_TO_KCAL_MOL * (vib.get_zero_point_energy() + electronic_energy)
-    H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=g.THERMO_TEMPERATURE)
+    H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=g.THERMO_TEMPERATURE, verbose=False)
     
     G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
     G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor

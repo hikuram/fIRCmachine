@@ -10,6 +10,7 @@ from typing import List, Optional
 from ase.io import read, write
 from ase.io.trajectory import Trajectory
 from scipy.signal import find_peaks
+from utils import log
 
 # Project modules
 import default_config as g
@@ -26,7 +27,7 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
         try:
             energy = atoms.get_potential_energy()
         except Exception as e:
-            print(f"Warning: missing value for {trajfile} atom {i}: {e}")
+            log("Warn", f"Missing value for {trajfile} atom {i}: {e}")
             energy = np.nan
         energies.append(energy)
     energies = np.array(energies)
@@ -46,7 +47,7 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
     # Detect peaks
     peaks, _ = find_peaks(energies_filled, prominence=prominence)
     base_name = os.path.splitext(os.path.basename(maxima_filename))[0]
-    print(f"Detected {len(peaks)} peak(s). Saving structures:")
+    log("Info", f"Detected {len(peaks)} peak(s) (excluding endpoints). Saving structures:")
     
     peak_files = []
     # Always include the first and last frames as endpoints
@@ -58,7 +59,7 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
         filename = f"{base_name}_{idx}.xyz"
         peak_files.append(filename)
         write(filename, atoms)
-        print(f"  → {filename} (energy = {energies[idx]:.6f})")
+        log("I/O", f"Wrote {filename} (energy = {energies[idx]:.6f})")
 
     return peak_files, g.PEAK_IDX
 
@@ -102,7 +103,7 @@ def traj_to_xyz(traj, out_xyz_path):
             atoms.info = {str(k): v for k, v in atoms.info.items()}
         write(out_xyz_path, traj)
     except Exception as e:
-        print(f"Warning: An error occurred while writing {out_xyz_path}: {e}")
+        log("Warn", f"An error occurred while writing {out_xyz_path}: {e}")
 
 def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image=None):
     """
@@ -128,7 +129,7 @@ def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image
                 energy_kcal = energy_ev * g.EV_TO_KCAL_MOL
                 data.append([i, energy_ev, energy_hartree, energy_kcal])
             except Exception as e:
-                print(f"Warning: missing value for {traj_name} frame {i}: {e}")
+                log("Warn", f"Missing value for {traj_name} frame {i}: {e}")
                 data.append([i, None, None, None])
             
             if energy_recalc:

@@ -5,6 +5,7 @@ from typing import Optional
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+from utils import log
 
 
 # add_underglow, adapted from mplcyberpunk (https://github.com/dhaitz/mplcyberpunk)
@@ -173,6 +174,7 @@ def instant_plot(dataframe, peak_idx, fig_name):
     plot_cols = [c for c in colnames if c not in ["# image", "previous_#image"]]
 
     if len(plot_cols) == 0:
+        log("Warn", "No numeric columns found to plot in the dataframe.")
         return
 
     # 3. Style and layout

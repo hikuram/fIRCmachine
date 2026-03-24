@@ -35,26 +35,31 @@ if __name__ == '__main__':
     parser.add_argument("-rs", "--result", type=str, required=False, default="result.csv", help="resulting dataframe .csv file")
     args = parser.parse_args()
     
+    log("System", f"Starting {os.path.basename(__file__)} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log("System", f"Charge: {args.charge}, Method: {args.method}")
+
     t_total_start = timepfc()
     if g.INIT_PATH_SEARCH_ON:
         if not os.path.exists(args.directory):
             os.makedirs(args.directory, exist_ok=True)
         else:
-            print(f"canceled: {args.directory} already exists")
+            log("Fail", f"Canceled: {args.directory} already exists")
             sys.exit()
         shutil.copy(args.reactant, args.directory)
         shutil.copy(args.reactant, args.directory+"/reactant.xyz")
         shutil.copy(args.product, args.directory)
         shutil.copy(args.product, args.directory+"/product.xyz")
+        log("I/O", f"Copied reactant and product to {args.directory}")
     else:
         if not os.path.exists(args.input):
-            print(f"canceled: cannot load {args.input}")
+            log("Fail", f"Canceled: cannot load {args.input}")
             sys.exit()
         if not os.path.exists(args.directory):
             os.makedirs(args.directory, exist_ok=True)
         input_name = os.path.basename(args.input)
         if not os.path.exists(args.directory+"/"+input_name):
             shutil.copy(args.input, args.directory)
+            log("I/O", f"Copied {input_name} to {args.directory}")
         g.I_TRAJ = input_name
     os.chdir(args.directory)
     g.CURRENT_DIR = args.directory
@@ -62,9 +67,9 @@ if __name__ == '__main__':
     g.CALC_TYPE = args.method
     g.R_CSV = args.result
     if os.path.exists(g.R_CSV):
-        print(f"info: {g.R_CSV} will be overwritten")
+        log("Info", f"{g.R_CSV} will be overwritten")
     else:
-        print(f"info: {g.R_CSV} will be made")
+        log("Info", f"{g.R_CSV} will be made")
     
     # Main
     if g.INIT_PATH_SEARCH_ON:
@@ -83,4 +88,5 @@ if __name__ == '__main__':
     t_total = timepfc() - t_total_start
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
-    print(f"finished at: {datetime.now()}")
+    log("Time", f"* Total_Time | {t_total:>12.2f} s *")
+    log("System", f"Finished at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
