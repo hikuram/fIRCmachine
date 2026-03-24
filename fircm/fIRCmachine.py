@@ -8,8 +8,9 @@ from typing import List
 
 # Third-party
 import numpy as np
+import scipy.constants as const
 import pandas as pd
-from ase import Atoms
+from ase import Atoms, units
 from ase.io import read, write
 from ase.io.trajectory import Trajectory
 from ase.optimize import LBFGS
@@ -167,11 +168,14 @@ def process_local_maxima():
                 vib_result = vib_img(base_name + ".xyz")
             except Exception as e:
                 print(f"Warning: Vibrations failed: {e}")
-                vib_result = [None, None, None, None]
+                vib_result = [None] * 7  # Expanded to 7 columns
             t_vib = timepfc() - t_vib_start
             t_vib_sum += t_vib
+            
+            # Write 4 variants of G
             write_result(
-                ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 'G [kcal/mol]'],
+                ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 
+                 'G [kcal/mol]', 'G_floor50 [kcal/mol]', 'G_floor100 [kcal/mol]', 'G_qRRHO [kcal/mol]'],
                 [t_vib] + vib_result
             )
             print(f"vibrations {t_vib} sec")
@@ -491,6 +495,64 @@ def get_symmetry_info(atoms, tol=1e-3):
     )
     return geometry, sym_num, internal_safe
 
+def calc_qRRHO_G_correction(vib_energies_eV, T=298.15, cutoff_cm1=100.0):
+    """
+    Calculate the Grimme qRRHO (quasi-Rigid Rotor Harmonic Oscillator) correction
+    for the Gibbs free energy.
+    Reference: S. Grimme, Chem. Eur. J. 2012, 18, 9955-9964.
+    
+    Args:
+        vib_energies_eV (list/ndarray): Vibrational energies in eV.
+        T (float): Temperature in Kelvin (default: 298.15 K).
+        cutoff_cm1 (float): Cutoff frequency (nu_0) in cm^-1 (default: 100).
+        
+    Returns:
+        float: Gibbs free energy correction in eV (G_qRRHO - G_RRHO).
+               Add this value to the standard ASE Gibbs free energy.
+    """
+    k_B = const.k # Boltzmann constant (J/K)
+    h = const.h # Planck constant (J s)
+    c = const.c * 100.0 # Speed of light (cm/s)
+    R = const.R # Gas constant (J/(mol K))
+    N_A = const.N_A # Avogadro constant (mol^-1)
+    B_av = 1.0e-44 # Average moment of inertia defined by Grimme (10^-44 kg m^2)
+    nu_0 = cutoff_cm1 * c # Convert cutoff frequency to Hz
+    S_HO_tot = 0.0
+    S_qRRHO_tot = 0.0
+    
+    for E_eV in vib_energies_eV:
+        # Ignore imaginary frequencies and exactly zero frequencies
+        if E_eV <= 0:
+            continue
+            
+        # Energy to frequency (Hz)
+        E_J = E_eV * const.e
+        nu = E_J / h
+        # x = h * nu / (k_B * T)
+        x = E_J / (k_B * T)
+        # 1. Harmonic Oscillator Entropy (J / (mol K))
+        S_HO_i = R * (x / (np.exp(x) - 1.0) - np.log(1.0 - np.exp(-x)))
+        # 2. Free Rotor Entropy (J / (mol K))
+        mu = h / (8.0 * np.pi**2 * nu)
+        mu_prime = (mu * B_av) / (mu + B_av)
+        val = (8.0 * np.pi**3 * mu_prime * k_B * T) / (h**2)
+        S_FR_i = R * (0.5 + 0.5 * np.log(val))
+        # 3. Damping function (Weighting factor)
+        w = 1.0 / (1.0 + (nu_0 / nu)**4)
+        # 4. Interpolated qRRHO Entropy
+        S_qRRHO_i = w * S_HO_i + (1.0 - w) * S_FR_i
+        S_HO_tot += S_HO_i
+        S_qRRHO_tot += S_qRRHO_i
+        
+    # Delta S (qRRHO - HO) in J / (mol K)
+    delta_S_J_mol_K = S_qRRHO_tot - S_HO_tot
+    # Convert Delta S to Delta G (J/mol) -> Delta G = -T * Delta S
+    delta_G_J_mol = -T * delta_S_J_mol_K
+    # Convert J/mol to eV/particle
+    delta_G_eV = delta_G_J_mol / (const.e * N_A)
+    
+    return delta_G_eV
+
 
 def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
     freqs = vib.get_frequencies()
@@ -553,28 +615,59 @@ def vib_img(xyz_name):
 
     # Ideal-gas limit
     # Use ignore_imag_modes=True
-    vib_energies = vib.get_energies()
+    vib_energies = vib.get_energies() # Units: eV
     # Dynamically obtain symmetry and geometry via PySCF
     geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
     
-    thermo = IdealGasThermo(
+    # Setup floor values (cm^-1 to eV)
+    floor_50_eV = 50.0 * units.invcm
+    floor_100_eV = 100.0 * units.invcm
+
+    # Room temperature=298.15 # Standard atmosphere=101325.0
+    # 1. Standard (No correction)
+    thermo_std = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=electronic_energy,
         atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
         ignore_imag_modes=True
     )
-    energy_eV = electronic_energy
-    zpe_eV = vib.get_zero_point_energy()  # Units: eV
-    H_eV = thermo.get_enthalpy(temperature=298.15)
-    G_eV = thermo.get_gibbs_energy(temperature=298.15, pressure=101325.0)
-        # Room temperature=298.15 # Standard atmosphere=101325.0
+    G_eV_std = thermo_std.get_gibbs_energy(temperature=298.15, pressure=101325.0)
+
+    # 2. Truhlar's Floor (50 cm^-1)
+    vib_energies_50 = [max(e, floor_50_eV) if e > 0 else e for e in vib_energies]
+    thermo_50 = IdealGasThermo(
+        vib_energies=vib_energies_50, potentialenergy=electronic_energy,
+        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
+        ignore_imag_modes=True
+    )
+    G_eV_50 = thermo_50.get_gibbs_energy(temperature=298.15, pressure=101325.0)
+
+    # 3. Truhlar's Floor (100 cm^-1)
+    vib_energies_100 = [max(e, floor_100_eV) if e > 0 else e for e in vib_energies]
+    thermo_100 = IdealGasThermo(
+        vib_energies=vib_energies_100, potentialenergy=electronic_energy,
+        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
+        ignore_imag_modes=True
+    )
+    G_eV_100 = thermo_100.get_gibbs_energy(temperature=298.15, pressure=101325.0)
+
+    # 4. Grimme's qRRHO Correction
+    delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=298.15, cutoff_cm1=100.0)
+    G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
+
+    # Convert everything to kcal/mol
+    zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
+    E_0K_kcal = g.EV_TO_KCAL_MOL * (vib.get_zero_point_energy() + electronic_energy)
+    H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=298.15)
     
-    zpe_kcal = g.EV_TO_KCAL_MOL * zpe_eV
-    E_0K_kcal = g.EV_TO_KCAL_MOL * (zpe_eV + energy_eV)
-    H_kcal = g.EV_TO_KCAL_MOL * H_eV
-    G_kcal = g.EV_TO_KCAL_MOL * G_eV
+    G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
+    G_kcal_50 = g.EV_TO_KCAL_MOL * G_eV_50
+    G_kcal_100 = g.EV_TO_KCAL_MOL * G_eV_100
+    G_kcal_qRRHO = g.EV_TO_KCAL_MOL * G_eV_qRRHO
+
     vib.clean()
     
-    return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal]
+    return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal_std, G_kcal_50, G_kcal_100, G_kcal_qRRHO]
+    
 
 def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoints.traj") -> List[str]:
     """
