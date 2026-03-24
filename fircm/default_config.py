@@ -7,6 +7,7 @@ USE_SELLA_IN_OPT: bool = False
 TSOPT_ON: bool = True
 IRC_ON: bool = True
 PICK_OPTPOINTS_ON: bool = True
+OPT_OPTPOINTS_AGAIN_ON: bool = False
 VIB_ON: bool = True
 REFINE_ENERGY_ON: bool = True
 OTHER_JOBS_EXAMPLE_ON: bool = False
@@ -24,6 +25,8 @@ DEVICE: str = "cuda"  # "cuda" or "cpu"
 
 # Model settings
 MULT: int = 1
+THERMO_TEMPERATURE: float = 298.15
+THERMO_ATOMOSPHERE: float = 101325.0
 
 # Module-specific settings
 # -DMF

@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 from pyscf.tools import molden
+from utils import log
 
 
 def _to_numpy_recursive(value: Any) -> Any:
@@ -285,9 +286,9 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
     try:
         with open(json_filename, "w", encoding="utf-8") as f:
             json.dump(_safe_jsonify(data), f, indent=4)
-        print(f"Saved JSON data to {json_filename}")
+        log("I/O", f"Saved JSON data to {json_filename}")
     except Exception as e:
-        print(f"Warning: JSON export failed: {e}")
+        log("Warn", f"JSON export failed: {e}")
 
     # Export Molden
     molden_filename = f"{prefix}.molden"
@@ -313,8 +314,8 @@ def export_pyscf_single_point(atoms, prefix: str = "job", method: Optional[Any] 
                 ene=mo_energy,
                 occ=mo_occ,
             )
-        print(f"Saved Molden file to {molden_filename}")
+        log("I/O", f"Saved Molden file to {molden_filename}")
     except Exception as e:
-        print(f"Warning: Molden export failed: {e}")
+        log("Warn", f"Molden export failed: {e}")
 
     return data

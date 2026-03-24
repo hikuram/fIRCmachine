@@ -1,6 +1,10 @@
 from ase import Atoms
 from ase.io import read
 
+def log(tag: str, msg: str):
+    """Helper function to standardize terminal output format."""
+    print(f"[{tag:<6}] {msg}")
+
 def rescue_xyz_read(file_name, index=-1):
     """
     Attempt to read an XYZ/extXYZ file with rescue fallbacks.
