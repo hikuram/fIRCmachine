@@ -34,29 +34,38 @@ from traj_utils import extract_peaks_from_traj, traj_to_xyz, write_energies, \
 #g.INIT_PATH_SEARCH_ON = False
 # Example settings are described in README or default_config.py.
 
+def log(tag: str, msg: str):
+    """Helper function to standardize terminal output format."""
+    print(f"[{tag:<6}] {msg}")
+
 # FB-ENM/DMF optimization (first stage)
 def run_initial_path_search():
+    log("Path", "Reading reactant.xyz and product.xyz ...")
     reactant = read("reactant.xyz")
     product = read("product.xyz")
     
     # == Refine input geometries ===================
     t_opt_start = timepfc()
     if g.REFINE_INPUT_ON:
+        log("Opt", "Refining input geometries ...")
         if g.USE_SELLA_IN_OPT:
             reactant = opt_sella_img("reactant.xyz")
             product = opt_sella_img("product.xyz")
         else:
             reactant = opt_img("reactant.xyz")
             product = opt_img("product.xyz")
-    t_opt = timepfc() - t_opt_start
-    txt = f"* Optimize_Total        | {t_opt:>12.2f} s  *\n"
-    write_line(g.TIME_LOG_NAME, txt)
+        t_opt = timepfc() - t_opt_start
+        log("Opt", f"-> Input geometries refined in {t_opt:.2f} s")
+        txt = f"* Optimize_Total        | {t_opt:>12.2f} s  *\n"
+        write_line(g.TIME_LOG_NAME, txt)
     
     # == Run DMF ===================
     
     t_dmf_start = timepfc()
+    log("Path", "Running FB-ENM and DirectMaxFlux ...")
     mepopt_dmf(reactant, product)
     t_dmf = timepfc() - t_dmf_start
+    log("Path", f"-> DMF finished in {t_dmf:.2f} s")
     txt = f"* FB-ENM/DMF_Total      | {t_dmf:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
 
@@ -65,7 +74,9 @@ def process_local_maxima():
     df_new = pd.read_csv(g.R_CSV)
     # Detect and save local maxima
     peak_files = []
+    log("Info", f"Extracting peaks from {g.I_TRAJ} ...")
     peak_files, g.PEAK_IDX = extract_peaks_from_traj(g.I_TRAJ, "lmax.xyz", prominence=0.01)
+    log("Info", f"Detected {len(peak_files)} peak(s) including endpoints.")
 
     # Write CSV (accepts a pair of elements or lists)
     def write_result(column_name, value):
@@ -77,7 +88,7 @@ def process_local_maxima():
         try:
             df_new.to_csv(g.R_CSV, index=False)
         except Exception as e:
-            print(f"Warning: An error occurred while writing {g.R_CSV}: {e}")
+            log("Warn", f"An error occurred while writing {g.R_CSV}: {e}")
 
     # Sub-iteration 1: ignore endpoints
     irc_trajs_str = ""
@@ -96,23 +107,25 @@ def process_local_maxima():
         # == Run TS optimization ===================
         if g.TSOPT_ON:
             t_tsopt_start = timepfc()
+            log("TS", f"Optimizing TS for {base_name} ...")
             try:
                 tsopt_img(base_name + ".xyz")
             except Exception as e:
-                print(f"Warning: TSopt failed: {e}")
+                log("Warn", f"TSopt failed for {base_name}: {e}")
             t_tsopt = timepfc() - t_tsopt_start
             write_result('time_TSopt [s]', t_tsopt)
-            print(f"tsopt {t_tsopt} sec")
+            log("TS", f"-> TS optimized in {t_tsopt:.2f} s")
 
         # == Run IRC ===================
         if g.IRC_ON:
             target_xyz = base_name + "_tsopt.xyz"
             
             if not os.path.exists(target_xyz):
-                print(f"Warning: Skipping IRC for {base_name} (Missing TS structure).")
+                log("Warn", f"Skipping IRC for {base_name} (Missing TS structure).")
                 write_result(['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'], [None, None, None])
             else:
                 t_irc_start = timepfc()
+                log("IRC", f"Running IRC for {base_name} ...")
                 try:
                     irc_result = irc_img(target_xyz)
                     
@@ -124,7 +137,7 @@ def process_local_maxima():
                         irc_trajs_str += f" {g.CURRENT_DIR}/{base_name}_tsopt_irc1/irc.traj"
                         
                 except Exception as e:
-                    print(f"Warning: IRC failed for {base_name}: {e}")
+                    log("Warn", f"IRC failed for {base_name}: {e}")
                     irc_result = [None, None]
                     
                 t_irc = timepfc() - t_irc_start
@@ -132,7 +145,7 @@ def process_local_maxima():
                     ['time_IRC [s]', 'deltaE_irc0 [kcal/mol]', 'deltaE_irc1 [kcal/mol]'],
                     [t_irc] + irc_result
                 )
-                print(f"irc {t_irc} sec")
+                log("IRC", f"-> IRC finished in {t_irc:.2f} s")
         # ==
 
     t_tsopt_irc = timepfc() - t_tsopt_irc_start
@@ -144,6 +157,7 @@ def process_local_maxima():
     # Optional workflow: pick representative optimized points for thermochemistry.
     vib_files = peak_files
     if g.PICK_OPTPOINTS_ON:
+        log("Info", "Picking optimized points for thermochemistry ...")
         g.ORIG_R_CSV = g.R_CSV
         vib_files, opt_indices = make_optpoints_traj(peak_files)
         optpoints_csv = "optpoints/result_optpoints.csv"
@@ -164,10 +178,11 @@ def process_local_maxima():
         # == Vibrations and IdealGasThermo ===================
         if g.VIB_ON:
             t_vib_start = timepfc()
+            log("Vib", f"Running vibrations for {base_name} ...")
             try:
                 vib_result = vib_img(base_name + ".xyz")
             except Exception as e:
-                print(f"Warning: Vibrations failed: {e}")
+                log("Warn", f"Vibrations failed for {base_name}: {e}")
                 vib_result = [None] * 6
             t_vib = timepfc() - t_vib_start
             t_vib_sum += t_vib
@@ -177,16 +192,17 @@ def process_local_maxima():
                  'G [kcal/mol]', 'G_std [kcal/mol]', 'G_floor [kcal/mol]'],
                 [t_vib] + vib_result
             )
-            print(f"vibrations {t_vib} sec")
+            log("Vib", f"-> Vibrations finished in {t_vib:.2f} s")
 
         # == Refinement ===================
         if g.REFINE_ENERGY_ON:
             t_refine_start = timepfc()
+            log("Refine", f"Running energy refinement for {base_name} ...")
             try:
                 refine_result = refine_energy_img(base_name + ".xyz", refine_type=g.REFINE_CALC_TYPE)
                 energy_ref_eV, energy_ref_kcal = refine_result
             except Exception as e:
-                print(f"Warning: refinement failed: {e}")
+                log("Warn", f"Refinement failed for {base_name}: {e}")
                 energy_ref_eV = None
                 energy_ref_kcal = None
 
@@ -211,7 +227,7 @@ def process_local_maxima():
                 G_refine_kcal = energy_ref_kcal + thermal_corr_G
                 write_result('G_refine [kcal/mol] (HL//LL)', G_refine_kcal)
 
-            print(f"refinement {t_refine} sec")
+            log("Refine", f"-> Refinement finished in {t_refine:.2f} s")
         # ==
 
     txt = f"* Vibrations_Total      | {t_vib_sum:>12.2f} s  *\n"
@@ -229,9 +245,11 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     quiet_stdout = {"print_level": 0, "file_print_level": 5}
     mxflx_fbenm = interpolate_fbenm(ref_images, correlated=True, ipopt_options=quiet_stdout)
     write('DMF_init.xyz', mxflx_fbenm.images)
+    log("I/O", "Wrote DMF_init.xyz")
     
     # Write initial path and its coefficients
     write('DMF_init.traj', mxflx_fbenm.images)
+    log("I/O", "Wrote DMF_init.traj")
     coefs = mxflx_fbenm.coefs.copy()
     np.save('DMF_init_coefs', coefs)
     
@@ -249,6 +267,7 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     except Exception as e:
         write("DMF_last_before_error.xyz", mxflx.images)
         write("DMF_last_before_error.traj", mxflx.images)
+        log("Fail", f"abort: DirectMaxFlux.solve failed: {e}")
         sys.exit(f"abort: DirectMaxFlux.solve failed: {e}")
     
     # DMF_final.traj: Recompute SPC for mxflx.images (some frames lack energy)
@@ -263,16 +282,18 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
             # Explicitly calculate energy
             _ = atoms.get_potential_energy()
         except Exception as e:
-            print(f"Warning: failed to compute energy for image {len(final_images)}: {e}")
+            log("Warn", f"Failed to compute energy for image {len(final_images)}: {e}")
         final_images.append(atoms)
     
     # x(tmax): path and history
     images_tmax = mxflx.history.images_tmax
     write('DMF_tmax.traj', images_tmax)
     traj_to_xyz(images_tmax, 'DMF_tmax.xyz')
+    log("I/O", "Wrote DMF_tmax.traj and .xyz")
     # final_images: save images to .traj
     write('DMF_final.traj', final_images)
     traj_to_xyz(final_images, 'DMF_final.xyz')
+    log("I/O", "Wrote DMF_final.traj and .xyz")
     # Write results
     write_energies('DMF_final.traj', g.R_CSV)
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/DMF_final.traj")
@@ -295,6 +316,7 @@ def opt_img(xyz_name: str) -> Atoms:
     write(img_name+"_opt.xyz", img)
     images = read(img_name+"_opt.traj", index=':')
     traj_to_xyz(images, img_name+"_opt.traj.xyz")
+    log("I/O", f"Wrote {img_name}_opt files")
     
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_opt.traj")
     return img
@@ -316,6 +338,7 @@ def opt_sella_img(xyz_name: str) -> Atoms:
     write(img_name+"_opt.xyz", img)
     images = read(img_name+"_opt.traj", index=':')
     traj_to_xyz(images, img_name+"_opt.traj.xyz")
+    log("I/O", f"Wrote {img_name}_opt files")
     
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_opt.traj")
     return img
@@ -340,6 +363,7 @@ def tsopt_img(xyz_name: str) -> Atoms:
     write(img_name+"_tsopt.xyz", img)
     images = read(img_name+"_tsopt.traj", index=':')
     traj_to_xyz(images, img_name+"_tsopt.traj.xyz")
+    log("I/O", f"Wrote {img_name}_tsopt files")
     
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_tsopt.traj")
     return img
@@ -372,6 +396,7 @@ def irc_img(xyz_name: str) -> List[float]:
         os.mkdir(tgt_dir)
     write(tgt_dir+"/irc.traj", rearr_images)
     traj_to_xyz(rearr_images, tgt_dir+"/irc.traj.xyz")
+    log("I/O", f"Wrote {tgt_dir}/irc.traj")
     
     rearr_images.reverse()
     tgt_dir = img_name+"_irc1"
@@ -379,6 +404,7 @@ def irc_img(xyz_name: str) -> List[float]:
         os.mkdir(tgt_dir)
     write(tgt_dir+"/irc.traj", rearr_images)
     traj_to_xyz(rearr_images, tgt_dir+"/irc.traj.xyz")
+    log("I/O", f"Wrote {tgt_dir}/irc.traj")
     
     rearr_energies = []
     for rimg in rearr_images:
@@ -406,8 +432,9 @@ def refine_energy_img(xyz_name, refine_type="pyscf_high"):
     
     try:
         export_pyscf_single_point(img, prefix=img_name+"_refine")
+        log("I/O", f"Exported PySCF input to {img_name}_refine")
     except Exception as e:
-        print(f"Warning: export_pyscf_single_point failed: {e}")
+        log("Warn", f"export_pyscf_single_point failed: {e}")
     
     img.calc = None
     return [energy_eV, energy_kcal]
@@ -443,7 +470,7 @@ def get_symmetry_info(atoms, tol=1e-3):
         
         pg = mol.topgroup
     except Exception as e:
-        print(f"Warning: Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
+        log("Warn", f"Failed to determine symmetry with PySCF ({e}). Falling back to nonlinear, sigma=1.")
         return 'nonlinear', 1, True
     finally:
         symm.geom.TOLERANCE = orig_tol
@@ -487,11 +514,8 @@ def get_symmetry_info(atoms, tol=1e-3):
         internal_safe = False
     elif pg in risky_point_groups:
         internal_safe = False
-    print(
-        f"  [coords] Detected Point Group: {pg} -> "
-        f"geometry='{geometry}', symmetrynumber={sym_num}, "
-        f"internal_safe={internal_safe}"
-    )
+    
+    log("Thermo", f"Detected Point Group: {pg} -> geometry='{geometry}', symmetrynumber={sym_num}, internal_safe={internal_safe}")
     return geometry, sym_num, internal_safe
 
 def calc_qRRHO_G_correction(vib_energies_eV, T=298.15, cutoff_cm1=100.0):
@@ -589,7 +613,7 @@ def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
     generate_half_cycle(+1)  # +mode -> original
     generate_half_cycle(-1)  # -mode -> original
     write(output, images)
-    print(f"[Info] Wrote {len(images)} frames to {output}")
+    log("Info", f"Wrote {len(images)} frames to {output}")
 
 # Run vibrations and thermodynamics
 def vib_img(xyz_name):
@@ -603,6 +627,7 @@ def vib_img(xyz_name):
     vib = Vibrations(img, name="vib_temp")
     vib.run()
     vib.summary(log=img_name+'_vibsummary.txt')
+    log("I/O", f"Wrote {img_name}_vibsummary.txt")
     vib.get_frequencies()
     #generate_vibration_xyz(atoms, vib, 0, steps, scale, vib_filename)
     for mode in range(0, 3):
@@ -626,8 +651,10 @@ def vib_img(xyz_name):
     G_eV_std = thermo_std.get_gibbs_energy(temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE)
 
     # 2. Grimme's qRRHO Correction (default)
-    delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=100.0)
+    cutoff = 100.0
+    delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=cutoff)
     G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
+    log("Thermo", f"Applied qRRHO correction (cutoff: {cutoff} cm^-1)")
     
     # 3. Truhlar's Floor (floor_x cm^-1)
     floor_x = 50.0
@@ -639,7 +666,7 @@ def vib_img(xyz_name):
         ignore_imag_modes=True
     )
     G_eV_floor = thermo_floor.get_gibbs_energy(temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE)
-
+    log("Thermo", f"Calculated Truhlar's Floor correction (floor: {floor_x} cm^-1)")
 
     # Convert everything to kcal/mol
     zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
@@ -706,6 +733,7 @@ def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoi
 
     write(out_traj, branch_images)
     traj_to_xyz(branch_images, out_traj + ".xyz")
+    log("I/O", f"Wrote {out_traj} and .xyz")
 
     xyz_prefix = os.path.splitext(out_traj)[0]
     branch_xyz_files = split_traj_to_xyz(out_traj, xyz_prefix)
@@ -721,6 +749,7 @@ def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoi
 
 # Finishing steps
 def finalize_run():
+    log("System", "Finalizing run and updating CSV files ...")
     csv_targets = []
     if g.PICK_OPTPOINTS_ON and hasattr(g, 'ORIG_R_CSV'):
         csv_targets.append((g.ORIG_R_CSV, g.PEAK_IDX))
@@ -745,20 +774,22 @@ def finalize_run():
                 if "G_refine [kcal/mol] (HL//LL)" in df.columns and df["G_refine [kcal/mol] (HL//LL)"].notna().any():
                     df["Delta G_refine vs. reactant [kcal/mol] (HL//LL)"] = df["G_refine [kcal/mol] (HL//LL)"] - df.loc[0, "G_refine [kcal/mol] (HL//LL)"]
                 df.to_csv(csv_file, index=False)
+                log("I/O", f"Updated {csv_file} with relative energies")
             except Exception as e:
-                print(f"Warning: An error occurred while writing {csv_file}: {e}")
+                log("Warn", f"An error occurred while writing {csv_file}: {e}")
         
         # plot
         if g.SAVE_FIG_ON:
             figname = f"fig_{os.path.splitext(os.path.basename(csv_file))[0]}.png"
             instant_plot(df, peak_idx, figname)
+            log("I/O", f"Saved plot to {figname}")
     
     # Suggest next steps
     if g.WRITE_SUGGESTIONS_ON and len(g.SUGGESTIONS)>0:
-        print("(suggestion) your next steps may be ...")
+        log("Info", "Your next steps may be ...")
         with open("suggestions.txt", "a", encoding='utf-8') as f:
             for elem in g.SUGGESTIONS:
-                print(elem)
+                print(f"  {elem}")
                 f.write(f"{elem}\n")
 
 if __name__ == '__main__':
@@ -774,26 +805,31 @@ if __name__ == '__main__':
     parser.add_argument("-rs", "--result", type=str, required=False, default="result.csv", help="resulting dataframe .csv file")
     args = parser.parse_args()
     
+    log("System", f"Starting fIRCmachine at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log("System", f"Charge: {args.charge}, Method: {args.method}")
+
     t_total_start = timepfc()
     if g.INIT_PATH_SEARCH_ON:
         if not os.path.exists(args.directory):
             os.makedirs(args.directory, exist_ok=True)
         else:
-            print(f"canceled: {args.directory} already exists")
+            log("Fail", f"Canceled: {args.directory} already exists")
             sys.exit()
         shutil.copy(args.reactant, args.directory)
         shutil.copy(args.reactant, args.directory+"/reactant.xyz")
         shutil.copy(args.product, args.directory)
         shutil.copy(args.product, args.directory+"/product.xyz")
+        log("I/O", f"Copied reactant and product to {args.directory}")
     else:
         if not os.path.exists(args.input):
-            print(f"canceled: cannot load {args.input}")
+            log("Fail", f"Canceled: cannot load {args.input}")
             sys.exit()
         if not os.path.exists(args.directory):
             os.makedirs(args.directory, exist_ok=True)
         input_name = os.path.basename(args.input)
         if not os.path.exists(args.directory+"/"+input_name):
             shutil.copy(args.input, args.directory)
+            log("I/O", f"Copied {input_name} to {args.directory}")
         g.I_TRAJ = input_name
     os.chdir(args.directory)
     g.CURRENT_DIR = args.directory
@@ -801,9 +837,9 @@ if __name__ == '__main__':
     g.CALC_TYPE = args.method
     g.R_CSV = args.result
     if os.path.exists(g.R_CSV):
-        print(f"info: {g.R_CSV} will be overwritten")
+        log("Info", f"{g.R_CSV} will be overwritten")
     else:
-        print(f"info: {g.R_CSV} will be made")
+        log("Info", f"{g.R_CSV} will be made")
     
     # Main
     if g.INIT_PATH_SEARCH_ON:
@@ -822,4 +858,5 @@ if __name__ == '__main__':
     t_total = timepfc() - t_total_start
     txt = f"* Total_Time            | {t_total:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
-    print(f"finished at: {datetime.now()}")
+    log("Time", f"* Total_Time | {t_total:>12.2f} s *")
+    log("System", f"Finished at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
