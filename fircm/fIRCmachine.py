@@ -168,14 +168,13 @@ def process_local_maxima():
                 vib_result = vib_img(base_name + ".xyz")
             except Exception as e:
                 print(f"Warning: Vibrations failed: {e}")
-                vib_result = [None] * 7  # Expanded to 7 columns
+                vib_result = [None] * 6
             t_vib = timepfc() - t_vib_start
             t_vib_sum += t_vib
             
-            # Write 4 variants of G
             write_result(
                 ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 
-                 'G [kcal/mol]', 'G_floor50 [kcal/mol]', 'G_floor100 [kcal/mol]', 'G_qRRHO [kcal/mol]'],
+                 'G [kcal/mol]', 'G_std [kcal/mol]', 'G_floor [kcal/mol]'],
                 [t_vib] + vib_result
             )
             print(f"vibrations {t_vib} sec")
@@ -618,54 +617,43 @@ def vib_img(xyz_name):
     # Dynamically obtain symmetry and geometry via PySCF
     geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
     
-    # Setup floor values (cm^-1 to eV)
-    floor_50_eV = 50.0 * units.invcm
-    floor_100_eV = 100.0 * units.invcm
-
-    # Room temperature=298.15 # Standard atmosphere=101325.0
     # 1. Standard (No correction)
     thermo_std = IdealGasThermo(
         vib_energies=vib_energies, potentialenergy=electronic_energy,
         atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
         ignore_imag_modes=True
     )
-    G_eV_std = thermo_std.get_gibbs_energy(temperature=298.15, pressure=101325.0)
+    G_eV_std = thermo_std.get_gibbs_energy(temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE)
 
-    # 2. Truhlar's Floor (50 cm^-1)
-    vib_energies_50 = [max(e, floor_50_eV) if e > 0 else e for e in vib_energies]
-    thermo_50 = IdealGasThermo(
-        vib_energies=vib_energies_50, potentialenergy=electronic_energy,
-        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
-        ignore_imag_modes=True
-    )
-    G_eV_50 = thermo_50.get_gibbs_energy(temperature=298.15, pressure=101325.0)
-
-    # 3. Truhlar's Floor (100 cm^-1)
-    vib_energies_100 = [max(e, floor_100_eV) if e > 0 else e for e in vib_energies]
-    thermo_100 = IdealGasThermo(
-        vib_energies=vib_energies_100, potentialenergy=electronic_energy,
-        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
-        ignore_imag_modes=True
-    )
-    G_eV_100 = thermo_100.get_gibbs_energy(temperature=298.15, pressure=101325.0)
-
-    # 4. Grimme's qRRHO Correction
-    delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=298.15, cutoff_cm1=100.0)
+    # 2. Grimme's qRRHO Correction (default)
+    delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=100.0)
     G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
+    
+    # 3. Truhlar's Floor (floor_x cm^-1)
+    floor_x = 50.0
+    floor_x_eV = floor_x * units.invcm
+    vib_energies_floor = [max(e, floor_x_eV) if e > 0 else e for e in vib_energies]
+    thermo_floor = IdealGasThermo(
+        vib_energies=vib_energies_floor, potentialenergy=electronic_energy,
+        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
+        ignore_imag_modes=True
+    )
+    G_eV_floor = thermo_floor.get_gibbs_energy(temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE)
+
 
     # Convert everything to kcal/mol
     zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
     E_0K_kcal = g.EV_TO_KCAL_MOL * (vib.get_zero_point_energy() + electronic_energy)
-    H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=298.15)
+    H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=g.THERMO_TEMPERATURE)
     
     G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
-    G_kcal_50 = g.EV_TO_KCAL_MOL * G_eV_50
-    G_kcal_100 = g.EV_TO_KCAL_MOL * G_eV_100
+    G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor
     G_kcal_qRRHO = g.EV_TO_KCAL_MOL * G_eV_qRRHO
+    G_kcal = G_kcal_qRRHO
 
     vib.clean()
     
-    return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal_std, G_kcal_50, G_kcal_100, G_kcal_qRRHO]
+    return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_floor]
     
 
 def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoints.traj") -> List[str]:
