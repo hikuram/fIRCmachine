@@ -25,6 +25,8 @@ DEVICE: str = "cuda"  # "cuda" or "cpu"
 
 # Model settings
 MULT: int = 1
+THERMO_TEMPERATURE: float = 298.15
+THERMO_ATOMOSPHERE: float = 101325.0
 
 # Module-specific settings
 # -DMF
