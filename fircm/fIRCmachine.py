@@ -637,22 +637,34 @@ def vib_img(xyz_name):
         # Ideal-gas limit
         raw_vib_energies = vib.get_energies() # Units: eV
 
-        # --- MODIFIED: Unified cutoff and robust TS mode protection ---
+# --- MODIFIED: Unified cutoff and robust TS mode protection ---
         freq_cutoff_cm1 = 50.0
         freq_cutoff_eV = freq_cutoff_cm1 * units.invcm
+        
+        # Threshold to distinguish a TRUE TS mode from numerical noise at a local minimum.
+        # Modes smaller than this (e.g., < 20 i cm^-1) are assumed to be noise, not a reaction coordinate.
+        ts_recognition_threshold_cm1 = 20.0
+        ts_recognition_threshold_eV = ts_recognition_threshold_cm1 * units.invcm
 
         # 1. Identify imaginary modes (complex numbers with non-zero imag part or negative reals)
         imag_modes = [e for e in raw_vib_energies if abs(e.imag) > 1e-10 or e.real < -1e-10]
 
-        # 2. Protect the largest imaginary mode as the True TS mode
+        # 2. Protect the largest imaginary mode ONLY IF it is large enough to be a true TS
         true_ts_mode = None
         if imag_modes:
-            # Find the mode with the largest absolute magnitude
-            true_ts_mode = max(imag_modes, key=abs)
-            ts_mag_cm1 = abs(true_ts_mode) / units.invcm
-            log("Thermo", f"Protected largest imaginary mode as True TS: {ts_mag_cm1:.1f} i cm^-1")
-            if len(imag_modes) > 1:
-                log("Thermo", f"Treating {len(imag_modes)-1} additional small imaginary mode(s) as noise.")
+            largest_imag_mode = max(imag_modes, key=abs)
+            max_mag_cm1 = abs(largest_imag_mode) / units.invcm
+            
+            if max_mag_cm1 > ts_recognition_threshold_cm1:
+                # It's a true TS mode
+                true_ts_mode = largest_imag_mode
+                log("Thermo", f"Protected largest imaginary mode as True TS: {max_mag_cm1:.1f} i cm^-1")
+                if len(imag_modes) > 1:
+                    log("Thermo", f"Treating {len(imag_modes)-1} additional small imaginary mode(s) as noise.")
+            else:
+                # It's just noise at a local minimum
+                log("Thermo", f"Largest imaginary mode ({max_mag_cm1:.1f} i cm^-1) is too small to be a TS.")
+                log("Thermo", f"Treating all {len(imag_modes)} imaginary mode(s) as noise (Assuming local minimum).")
         else:
             log("Thermo", "No imaginary modes found (Assuming local minimum).")
 
