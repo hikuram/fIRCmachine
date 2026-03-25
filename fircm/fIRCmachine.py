@@ -622,7 +622,7 @@ def vib_img(xyz_name):
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     #forces = img.get_forces()
     electronic_energy = img.get_potential_energy()
-    vib = Vibrations(img, name=f"{img_name}_vib_temp")
+    vib = Vibrations(img, name="vib_temp")
     try:
         vib.run()
         vib.summary(log=img_name+'_vibsummary.txt')
@@ -637,22 +637,37 @@ def vib_img(xyz_name):
         # Ideal-gas limit
         raw_vib_energies = vib.get_energies() # Units: eV
 
-        # --- MODIFIED: Handle imaginary frequencies (Noise vs TS mode) ---
-        # Define a threshold to distinguish true TS modes from numerical noise.
-        # True TS modes (e.g., > 50 cm^-1 imaginary) will be discarded.
-        # Small imaginary noise (< 50 cm^-1) will be kept as absolute values.
-        ts_threshold_eV = 50.0 * units.invcm
-        
+        # --- MODIFIED: Unified cutoff and robust TS mode protection ---
+        freq_cutoff_cm1 = 50.0
+        freq_cutoff_eV = freq_cutoff_cm1 * units.invcm
+
+        # 1. Identify imaginary modes (complex numbers with non-zero imag part or negative reals)
+        imag_modes = [e for e in raw_vib_energies if abs(e.imag) > 1e-10 or e.real < -1e-10]
+
+        # 2. Protect the largest imaginary mode as the True TS mode
+        true_ts_mode = None
+        if imag_modes:
+            # Find the mode with the largest absolute magnitude
+            true_ts_mode = max(imag_modes, key=abs)
+            ts_mag_cm1 = abs(true_ts_mode) / units.invcm
+            log("Thermo", f"Protected largest imaginary mode as True TS: {ts_mag_cm1:.1f} i cm^-1")
+            if len(imag_modes) > 1:
+                log("Thermo", f"Treating {len(imag_modes)-1} additional small imaginary mode(s) as noise.")
+        else:
+            log("Thermo", "No imaginary modes found (Assuming local minimum).")
+
+        # 3. Process the remaining frequencies
         vib_energies = []
         for e in raw_vib_energies:
-            magnitude = abs(e)
-            # Discard significant imaginary frequencies (True TS modes)
-            if abs(e.imag) > ts_threshold_eV:
+            # Skip the true TS mode (only once, to handle potential degeneracies safely)
+            if true_ts_mode is not None and abs(e - true_ts_mode) < 1e-10:
+                true_ts_mode = None 
                 continue
-            # Keep real frequencies and absolute values of small imaginary noise
-            if magnitude > 1e-10: # Avoid exactly zero to prevent division by zero
-                vib_energies.append(magnitude)
-        # -----------------------------------------------------------------
+
+            magnitude_eV = abs(e)
+            if magnitude_eV > 1e-10: # Prevent exactly zero division
+                vib_energies.append(magnitude_eV)
+        # --------------------------------------------------------------
 
         # Dynamically obtain symmetry and geometry via PySCF
         geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
@@ -667,19 +682,15 @@ def vib_img(xyz_name):
             temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
         )
         
-        # 2. Grimme's qRRHO Correction (default)
-        cutoff = 100.0
-        # calc_qRRHO_G_correction will now receive absolute values of noise frequencies.
-        delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=cutoff)
+        # 2. Grimme's qRRHO Correction
+        # calc_qRRHO_G_correction receives the absolute values of noise frequencies.
+        delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=freq_cutoff_cm1)
         G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
-        log("Thermo", f"Calculated qRRHO correction (cutoff: {cutoff} cm^-1)")
+        log("Thermo", f"Calculated qRRHO correction (cutoff: {freq_cutoff_cm1} cm^-1)")
         
-        # 3. Truhlar's Floor (floor_x cm^-1)
-        floor_x = 50.0
-        floor_x_eV = floor_x * units.invcm
-        # --- MODIFIED: Raise all processed frequencies to the floor value ---
-        vib_energies_floor = [max(e, floor_x_eV) for e in vib_energies]
-        # --------------------------------------------------------------------
+        # 3. Truhlar's Floor
+        # Raise all processed frequencies to the unified floor value
+        vib_energies_floor = [max(e, freq_cutoff_eV) for e in vib_energies]
         thermo_floor = IdealGasThermo(
             vib_energies=vib_energies_floor, potentialenergy=electronic_energy,
             atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
@@ -688,7 +699,7 @@ def vib_img(xyz_name):
         G_eV_floor = thermo_floor.get_gibbs_energy(
             temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
         )
-        log("Thermo", f"Applied Truhlar's Floor correction (floor: {floor_x} cm^-1)")
+        log("Thermo", f"Applied Truhlar's Floor correction (floor: {freq_cutoff_cm1} cm^-1)")
     
         # Convert everything to kcal/mol
         zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
@@ -698,12 +709,13 @@ def vib_img(xyz_name):
         G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
         G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor
         G_kcal_qRRHO = g.EV_TO_KCAL_MOL * G_eV_qRRHO
+
+        # Floor is the main G, qRRHO is for reference
         G_kcal = G_kcal_floor
     
         vib.clean()
         
         return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_qRRHO]
-        
     finally:
         vib.clean()
         
