@@ -672,7 +672,7 @@ def vib_img(xyz_name):
         # calc_qRRHO_G_correction will now receive absolute values of noise frequencies.
         delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=cutoff)
         G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
-        log("Thermo", f"Applied qRRHO correction (cutoff: {cutoff} cm^-1)")
+        log("Thermo", f"Calculated qRRHO correction (cutoff: {cutoff} cm^-1)")
         
         # 3. Truhlar's Floor (floor_x cm^-1)
         floor_x = 50.0
@@ -688,7 +688,7 @@ def vib_img(xyz_name):
         G_eV_floor = thermo_floor.get_gibbs_energy(
             temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
         )
-        log("Thermo", f"Calculated Truhlar's Floor correction (floor: {floor_x} cm^-1)")
+        log("Thermo", f"Applied Truhlar's Floor correction (floor: {floor_x} cm^-1)")
     
         # Convert everything to kcal/mol
         zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
