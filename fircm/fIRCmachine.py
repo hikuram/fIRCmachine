@@ -566,7 +566,7 @@ def vib_img(xyz_name):
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     #forces = img.get_forces()
     electronic_energy = img.get_potential_energy()
-    vib = Vibrations(img, name="vib_temp")
+    vib = Vibrations(img, name=f"{img_name}_vib_temp")
     try:
         vib.run()
         vib.summary(log=img_name+'_vibsummary.txt')
@@ -587,7 +587,7 @@ def vib_img(xyz_name):
         
         # Threshold to distinguish a TRUE TS mode from numerical noise.
         # Set to 40.0 cm^-1 based on empirical data for heavy Ir complexes.
-        # This catches loose, true TS modes (e.g., 45 i cm^-1) while safely treating 
+        # This catches loose, true TS modes (e.g., 45 i cm^-1) while safely treating
         # lower frequency noise (e.g., ligand methyl rotations at 20-30 i cm^-1) as noise.
         ts_recognition_threshold_cm1 = 40.0
 
@@ -618,7 +618,7 @@ def vib_img(xyz_name):
         for e in raw_vib_energies:
             # Skip the true TS mode (only once, to handle potential degeneracies safely)
             if true_ts_mode is not None and abs(e - true_ts_mode) < 1e-10:
-                true_ts_mode = None 
+                true_ts_mode = None
                 continue
 
             magnitude_eV = abs(e)
@@ -628,22 +628,24 @@ def vib_img(xyz_name):
 
         # Dynamically obtain symmetry and geometry via PySCF
         geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
+
         # 1. Standard (No correction)
         thermo_std = IdealGasThermo(
             vib_energies=vib_energies, potentialenergy=electronic_energy,
             atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
-            ignore_imag_modes=True
+            ignore_imag_modes=False
         )
         G_eV_std = thermo_std.get_gibbs_energy(
             temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
         )
+
         # 2. Truhlar's Floor
         # Raise all processed frequencies to the unified floor value
         vib_energies_floor = [max(e, freq_cutoff_eV) for e in vib_energies]
         thermo_floor = IdealGasThermo(
             vib_energies=vib_energies_floor, potentialenergy=electronic_energy,
             atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
-            ignore_imag_modes=True
+            ignore_imag_modes=False
         )
         G_eV_floor = thermo_floor.get_gibbs_energy(
             temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
@@ -659,8 +661,6 @@ def vib_img(xyz_name):
         # Floor is the main G
         G_kcal = G_kcal_floor
     
-        vib.clean()
-        
         return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std]
     finally:
         vib.clean()
