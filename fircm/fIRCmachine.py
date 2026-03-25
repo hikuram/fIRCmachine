@@ -573,7 +573,7 @@ def calc_qRRHO_G_correction(vib_energies_eV, T=298.15, cutoff_cm1=100.0):
     return delta_G_eV
 
 
-def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
+def generate_vibration_xyz(atoms, vib, mode_index, output, steps=5, scale=2.0):
     freqs = vib.get_frequencies()
     natoms = len(atoms)
     numbers = atoms.get_atomic_numbers()
