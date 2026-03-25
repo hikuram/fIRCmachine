@@ -181,13 +181,13 @@ def process_local_maxima():
                 vib_result = vib_img(base_name + ".xyz")
             except Exception as e:
                 log("Warn", f"Vibrations failed for {base_name}: {e}")
-                vib_result = [None] * 6
+                vib_result = [None] * 5
             t_vib = timepfc() - t_vib_start
             t_vib_sum += t_vib
             
             write_result(
                 ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 
-                 'G [kcal/mol]', 'G_std [kcal/mol]', 'G_floor [kcal/mol]'],
+                 'G [kcal/mol]', 'G_std [kcal/mol]'],
                 [t_vib] + vib_result
             )
             log("Vib", f"-> Vibrations finished in {t_vib:.2f} s")
@@ -516,64 +516,8 @@ def get_symmetry_info(atoms, tol=1e-3):
     log("Thermo", f"Detected Point Group: {pg} -> geometry='{geometry}', symmetrynumber={sym_num}, internal_safe={internal_safe}")
     return geometry, sym_num, internal_safe
 
-def calc_qRRHO_G_correction(vib_energies_eV, T=298.15, cutoff_cm1=100.0):
-    """
-    Calculate the Grimme qRRHO (quasi-Rigid Rotor Harmonic Oscillator) correction
-    for the Gibbs free energy.
-    Reference: S. Grimme, Chem. Eur. J. 2012, 18, 9955-9964.
-    
-    Args:
-        vib_energies_eV (list/ndarray): Vibrational energies in eV.
-        T (float): Temperature in Kelvin (default: 298.15 K).
-        cutoff_cm1 (float): Cutoff frequency (nu_0) in cm^-1 (default: 100).
-        
-    Returns:
-        float: Gibbs free energy correction in eV (G_qRRHO - G_RRHO).
-               Add this value to the standard ASE Gibbs free energy.
-    """
-    k_B = const.k # Boltzmann constant (J/K)
-    h = const.h # Planck constant (J s)
-    c = const.c * 100.0 # Speed of light (cm/s)
-    R = const.R # Gas constant (J/(mol K))
-    N_A = const.N_A # Avogadro constant (mol^-1)
-    B_av = 1.0e-44 # Average moment of inertia defined by Grimme (10^-44 kg m^2)
-    nu_0 = cutoff_cm1 * c # Convert cutoff frequency to Hz
-    S_HO_tot = 0.0
-    S_qRRHO_tot = 0.0
-    for E_eV in vib_energies_eV:
-        # Ignore imaginary frequencies and exactly zero frequencies
-        if np.iscomplex(E_eV) or np.real(E_eV) <= 0.0:
-            continue
-        # Energy to frequency (Hz)
-        E_J = float(np.real(E_eV)) * const.e
-        nu = E_J / h
-        # x = h * nu / (k_B * T)
-        x = E_J / (k_B * T)
-        # 1. Harmonic Oscillator Entropy (J / (mol K))
-        S_HO_i = R * (x / (np.exp(x) - 1.0) - np.log(1.0 - np.exp(-x)))
-        # 2. Free Rotor Entropy (J / (mol K))
-        mu = h / (8.0 * np.pi**2 * nu)
-        mu_prime = (mu * B_av) / (mu + B_av)
-        val = (8.0 * np.pi**3 * mu_prime * k_B * T) / (h**2)
-        S_FR_i = R * (0.5 + 0.5 * np.log(val))
-        # 3. Damping function (Weighting factor)
-        w = 1.0 / (1.0 + (nu_0 / nu)**4)
-        # 4. Interpolated qRRHO Entropy
-        S_qRRHO_i = w * S_HO_i + (1.0 - w) * S_FR_i
-        S_HO_tot += S_HO_i
-        S_qRRHO_tot += S_qRRHO_i
-        
-    # Delta S (qRRHO - HO) in J / (mol K)
-    delta_S_J_mol_K = S_qRRHO_tot - S_HO_tot
-    # Convert Delta S to Delta G (J/mol) -> Delta G = -T * Delta S
-    delta_G_J_mol = -T * delta_S_J_mol_K
-    # Convert J/mol to eV/particle
-    delta_G_eV = delta_G_J_mol / (const.e * N_A)
-    
-    return delta_G_eV
 
-
-def generate_vibration_xyz(atoms, vib, mode_index, output, steps=10, scale=1.0):
+def generate_vibration_xyz(atoms, vib, mode_index, output, steps=5, scale=2.0):
     freqs = vib.get_frequencies()
     natoms = len(atoms)
     numbers = atoms.get_atomic_numbers()
@@ -623,66 +567,104 @@ def vib_img(xyz_name):
     #forces = img.get_forces()
     electronic_energy = img.get_potential_energy()
     vib = Vibrations(img, name="vib_temp")
-    vib.run()
-    vib.summary(log=img_name+'_vibsummary.txt')
-    log("I/O", f"Wrote {img_name}_vibsummary.txt")
-    vib.get_frequencies()
-    #generate_vibration_xyz(atoms, vib, 0, steps, scale, vib_filename)
-    for mode in range(0, 3):
-        vib_filename = f"{img_name}_vib_{mode}.xyz"
-        generate_vibration_xyz(img, vib, mode, output=vib_filename)
-    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
+    try:
+        vib.run()
+        vib.summary(log=img_name+'_vibsummary.txt')
+        log("I/O", f"Wrote {img_name}_vibsummary.txt")
+        vib.get_frequencies()
+        #generate_vibration_xyz(atoms, vib, 0, steps, scale, vib_filename)
+        for mode in range(0, 3):
+            vib_filename = f"{img_name}_vib_{mode}.xyz"
+            generate_vibration_xyz(img, vib, mode, output=vib_filename)
+        g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
+    
+        # Ideal-gas limit
+        raw_vib_energies = vib.get_energies() # Units: eV
 
-    # Ideal-gas limit
-    # Use ignore_imag_modes=True
-    raw_vib_energies = vib.get_energies() # Units: eV
-    vib_energies = [float(e.real) for e in raw_vib_energies if not np.iscomplex(e) and e.real > 0]
-    # Dynamically obtain symmetry and geometry via PySCF
-    geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
-    
-    # 1. Standard (No correction)
-    thermo_std = IdealGasThermo(
-        vib_energies=vib_energies, potentialenergy=electronic_energy,
-        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
-        ignore_imag_modes=True
-    )
-    G_eV_std = thermo_std.get_gibbs_energy(
-        temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
-    )
-    # 2. Grimme's qRRHO Correction (default)
-    cutoff = 100.0
-    delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=cutoff)
-    G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
-    log("Thermo", f"Applied qRRHO correction (cutoff: {cutoff} cm^-1)")
-    
-    # 3. Truhlar's Floor (floor_x cm^-1)
-    floor_x = 50.0
-    floor_x_eV = floor_x * units.invcm
-    vib_energies_floor = [max(e, floor_x_eV) if e > 0 else e for e in vib_energies]
-    thermo_floor = IdealGasThermo(
-        vib_energies=vib_energies_floor, potentialenergy=electronic_energy,
-        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
-        ignore_imag_modes=True
-    )
-    G_eV_floor = thermo_floor.get_gibbs_energy(
-        temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
-    )
-    log("Thermo", f"Calculated Truhlar's Floor correction (floor: {floor_x} cm^-1)")
+        # --- MODIFIED: Unified cutoff and robust TS mode protection ---
+        freq_cutoff_cm1 = 50.0
+        freq_cutoff_eV = freq_cutoff_cm1 * units.invcm
+        
+        # Threshold to distinguish a TRUE TS mode from numerical noise.
+        # Set to 40.0 cm^-1 based on empirical data for heavy Ir complexes.
+        # This catches loose, true TS modes (e.g., 45 i cm^-1) while safely treating 
+        # lower frequency noise (e.g., ligand methyl rotations at 20-30 i cm^-1) as noise.
+        ts_recognition_threshold_cm1 = 40.0
 
-    # Convert everything to kcal/mol
-    zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
-    E_0K_kcal = g.EV_TO_KCAL_MOL * (vib.get_zero_point_energy() + electronic_energy)
-    H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=g.THERMO_TEMPERATURE, verbose=False)
-    
-    G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
-    G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor
-    G_kcal_qRRHO = g.EV_TO_KCAL_MOL * G_eV_qRRHO
-    G_kcal = G_kcal_qRRHO
+        # 1. Identify imaginary modes (complex numbers with non-zero imag part or negative reals)
+        imag_modes = [e for e in raw_vib_energies if abs(e.imag) > 1e-10 or e.real < -1e-10]
 
-    vib.clean()
+        # 2. Protect the largest imaginary mode ONLY IF it is large enough to be a true TS
+        true_ts_mode = None
+        if imag_modes:
+            largest_imag_mode = max(imag_modes, key=abs)
+            max_mag_cm1 = abs(largest_imag_mode) / units.invcm
+            
+            if max_mag_cm1 > ts_recognition_threshold_cm1:
+                # It's a true TS mode
+                true_ts_mode = largest_imag_mode
+                log("Thermo", f"Protected largest imaginary mode as True TS: {max_mag_cm1:.1f} i cm^-1")
+                if len(imag_modes) > 1:
+                    log("Thermo", f"Treating {len(imag_modes)-1} additional small imaginary mode(s) as noise.")
+            else:
+                # It's just noise at a local minimum or flat region
+                log("Thermo", f"Largest imaginary mode ({max_mag_cm1:.1f} i cm^-1) is too small to be a TS.")
+                log("Thermo", f"Treating all {len(imag_modes)} imaginary mode(s) as noise.")
+        else:
+            log("Thermo", "No imaginary modes found (Assuming local minimum).")
+
+        # 3. Process the remaining frequencies
+        vib_energies = []
+        for e in raw_vib_energies:
+            # Skip the true TS mode (only once, to handle potential degeneracies safely)
+            if true_ts_mode is not None and abs(e - true_ts_mode) < 1e-10:
+                true_ts_mode = None 
+                continue
+
+            magnitude_eV = abs(e)
+            if magnitude_eV > 1e-10: # Prevent exactly zero division
+                vib_energies.append(magnitude_eV)
+        # --------------------------------------------------------------
+
+        # Dynamically obtain symmetry and geometry via PySCF
+        geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
+        # 1. Standard (No correction)
+        thermo_std = IdealGasThermo(
+            vib_energies=vib_energies, potentialenergy=electronic_energy,
+            atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
+            ignore_imag_modes=True
+        )
+        G_eV_std = thermo_std.get_gibbs_energy(
+            temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
+        )
+        # 2. Truhlar's Floor
+        # Raise all processed frequencies to the unified floor value
+        vib_energies_floor = [max(e, freq_cutoff_eV) for e in vib_energies]
+        thermo_floor = IdealGasThermo(
+            vib_energies=vib_energies_floor, potentialenergy=electronic_energy,
+            atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
+            ignore_imag_modes=True
+        )
+        G_eV_floor = thermo_floor.get_gibbs_energy(
+            temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
+        )
+        log("Thermo", f"Applied Truhlar's Floor correction (floor: {freq_cutoff_cm1} cm^-1)")
     
-    return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_floor]
+        # Convert everything to kcal/mol
+        zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
+        E_0K_kcal = g.EV_TO_KCAL_MOL * (vib.get_zero_point_energy() + electronic_energy)
+        H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=g.THERMO_TEMPERATURE, verbose=False)
+        G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
+        G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor
+        # Floor is the main G
+        G_kcal = G_kcal_floor
     
+        vib.clean()
+        
+        return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std]
+    finally:
+        vib.clean()
+        
 
 def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoints.traj") -> List[str]:
     """
