@@ -635,13 +635,25 @@ def vib_img(xyz_name):
         g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
     
         # Ideal-gas limit
-        # Use ignore_imag_modes=True
         raw_vib_energies = vib.get_energies() # Units: eV
-        vib_energies = [
-            float(e.real)
-            for e in raw_vib_energies
-            if abs(e.imag) < 1e-10 and e.real > 0
-        ]
+
+        # --- MODIFIED: Handle imaginary frequencies (Noise vs TS mode) ---
+        # Define a threshold to distinguish true TS modes from numerical noise.
+        # True TS modes (e.g., > 50 cm^-1 imaginary) will be discarded.
+        # Small imaginary noise (< 50 cm^-1) will be kept as absolute values.
+        ts_threshold_eV = 50.0 * units.invcm
+        
+        vib_energies = []
+        for e in raw_vib_energies:
+            magnitude = abs(e)
+            # Discard significant imaginary frequencies (True TS modes)
+            if abs(e.imag) > ts_threshold_eV:
+                continue
+            # Keep real frequencies and absolute values of small imaginary noise
+            if magnitude > 1e-10: # Avoid exactly zero to prevent division by zero
+                vib_energies.append(magnitude)
+        # -----------------------------------------------------------------
+
         # Dynamically obtain symmetry and geometry via PySCF
         geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
         
@@ -654,8 +666,10 @@ def vib_img(xyz_name):
         G_eV_std = thermo_std.get_gibbs_energy(
             temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
         )
+        
         # 2. Grimme's qRRHO Correction (default)
         cutoff = 100.0
+        # calc_qRRHO_G_correction will now receive absolute values of noise frequencies.
         delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=cutoff)
         G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
         log("Thermo", f"Applied qRRHO correction (cutoff: {cutoff} cm^-1)")
@@ -663,7 +677,9 @@ def vib_img(xyz_name):
         # 3. Truhlar's Floor (floor_x cm^-1)
         floor_x = 50.0
         floor_x_eV = floor_x * units.invcm
-        vib_energies_floor = [max(e, floor_x_eV) if e > 0 else e for e in vib_energies]
+        # --- MODIFIED: Raise all processed frequencies to the floor value ---
+        vib_energies_floor = [max(e, floor_x_eV) for e in vib_energies]
+        # --------------------------------------------------------------------
         thermo_floor = IdealGasThermo(
             vib_energies=vib_energies_floor, potentialenergy=electronic_energy,
             atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
@@ -687,6 +703,7 @@ def vib_img(xyz_name):
         vib.clean()
         
         return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_floor]
+        
     finally:
         vib.clean()
         
