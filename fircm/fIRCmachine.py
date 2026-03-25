@@ -622,7 +622,7 @@ def vib_img(xyz_name):
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     #forces = img.get_forces()
     electronic_energy = img.get_potential_energy()
-    vib = Vibrations(img, name="vib_temp")
+    vib = Vibrations(img, name=f"{img_name}_vib_temp")
     try:
         vib.run()
         vib.summary(log=img_name+'_vibsummary.txt')
