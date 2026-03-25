@@ -623,66 +623,73 @@ def vib_img(xyz_name):
     #forces = img.get_forces()
     electronic_energy = img.get_potential_energy()
     vib = Vibrations(img, name="vib_temp")
-    vib.run()
-    vib.summary(log=img_name+'_vibsummary.txt')
-    log("I/O", f"Wrote {img_name}_vibsummary.txt")
-    vib.get_frequencies()
-    #generate_vibration_xyz(atoms, vib, 0, steps, scale, vib_filename)
-    for mode in range(0, 3):
-        vib_filename = f"{img_name}_vib_{mode}.xyz"
-        generate_vibration_xyz(img, vib, mode, output=vib_filename)
-    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
-
-    # Ideal-gas limit
-    # Use ignore_imag_modes=True
-    raw_vib_energies = vib.get_energies() # Units: eV
-    vib_energies = [float(e.real) for e in raw_vib_energies if not np.iscomplex(e) and e.real > 0]
-    # Dynamically obtain symmetry and geometry via PySCF
-    geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
+    try:
+        vib.run()
+        vib.summary(log=img_name+'_vibsummary.txt')
+        log("I/O", f"Wrote {img_name}_vibsummary.txt")
+        vib.get_frequencies()
+        #generate_vibration_xyz(atoms, vib, 0, steps, scale, vib_filename)
+        for mode in range(0, 3):
+            vib_filename = f"{img_name}_vib_{mode}.xyz"
+            generate_vibration_xyz(img, vib, mode, output=vib_filename)
+        g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/{img_name}_vib_*.xyz")
     
-    # 1. Standard (No correction)
-    thermo_std = IdealGasThermo(
-        vib_energies=vib_energies, potentialenergy=electronic_energy,
-        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
-        ignore_imag_modes=True
-    )
-    G_eV_std = thermo_std.get_gibbs_energy(
-        temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
-    )
-    # 2. Grimme's qRRHO Correction (default)
-    cutoff = 100.0
-    delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=cutoff)
-    G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
-    log("Thermo", f"Applied qRRHO correction (cutoff: {cutoff} cm^-1)")
+        # Ideal-gas limit
+        # Use ignore_imag_modes=True
+        raw_vib_energies = vib.get_energies() # Units: eV
+        vib_energies = [
+            float(e.real)
+            for e in raw_vib_energies
+            if abs(e.imag) < 1e-10 and e.real > 0
+        ]
+        # Dynamically obtain symmetry and geometry via PySCF
+        geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
+        
+        # 1. Standard (No correction)
+        thermo_std = IdealGasThermo(
+            vib_energies=vib_energies, potentialenergy=electronic_energy,
+            atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
+            ignore_imag_modes=True
+        )
+        G_eV_std = thermo_std.get_gibbs_energy(
+            temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
+        )
+        # 2. Grimme's qRRHO Correction (default)
+        cutoff = 100.0
+        delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=cutoff)
+        G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
+        log("Thermo", f"Applied qRRHO correction (cutoff: {cutoff} cm^-1)")
+        
+        # 3. Truhlar's Floor (floor_x cm^-1)
+        floor_x = 50.0
+        floor_x_eV = floor_x * units.invcm
+        vib_energies_floor = [max(e, floor_x_eV) if e > 0 else e for e in vib_energies]
+        thermo_floor = IdealGasThermo(
+            vib_energies=vib_energies_floor, potentialenergy=electronic_energy,
+            atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
+            ignore_imag_modes=True
+        )
+        G_eV_floor = thermo_floor.get_gibbs_energy(
+            temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
+        )
+        log("Thermo", f"Calculated Truhlar's Floor correction (floor: {floor_x} cm^-1)")
     
-    # 3. Truhlar's Floor (floor_x cm^-1)
-    floor_x = 50.0
-    floor_x_eV = floor_x * units.invcm
-    vib_energies_floor = [max(e, floor_x_eV) if e > 0 else e for e in vib_energies]
-    thermo_floor = IdealGasThermo(
-        vib_energies=vib_energies_floor, potentialenergy=electronic_energy,
-        atoms=img, geometry=geom_type, symmetrynumber=sym_num, spin=(g.MULT-1)/2,
-        ignore_imag_modes=True
-    )
-    G_eV_floor = thermo_floor.get_gibbs_energy(
-        temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
-    )
-    log("Thermo", f"Calculated Truhlar's Floor correction (floor: {floor_x} cm^-1)")
-
-    # Convert everything to kcal/mol
-    zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
-    E_0K_kcal = g.EV_TO_KCAL_MOL * (vib.get_zero_point_energy() + electronic_energy)
-    H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=g.THERMO_TEMPERATURE, verbose=False)
+        # Convert everything to kcal/mol
+        zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
+        E_0K_kcal = g.EV_TO_KCAL_MOL * (vib.get_zero_point_energy() + electronic_energy)
+        H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=g.THERMO_TEMPERATURE, verbose=False)
+        
+        G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
+        G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor
+        G_kcal_qRRHO = g.EV_TO_KCAL_MOL * G_eV_qRRHO
+        G_kcal = G_kcal_qRRHO
     
-    G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
-    G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor
-    G_kcal_qRRHO = g.EV_TO_KCAL_MOL * G_eV_qRRHO
-    G_kcal = G_kcal_qRRHO
-
-    vib.clean()
-    
-    return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_floor]
-    
+        vib.clean()
+        
+        return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_floor]
+    finally:
+        vib.clean()
+        
 
 def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoints.traj") -> List[str]:
     """
