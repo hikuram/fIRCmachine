@@ -637,14 +637,15 @@ def vib_img(xyz_name):
         # Ideal-gas limit
         raw_vib_energies = vib.get_energies() # Units: eV
 
-# --- MODIFIED: Unified cutoff and robust TS mode protection ---
+        # --- MODIFIED: Unified cutoff and robust TS mode protection ---
         freq_cutoff_cm1 = 50.0
         freq_cutoff_eV = freq_cutoff_cm1 * units.invcm
         
-        # Threshold to distinguish a TRUE TS mode from numerical noise at a local minimum.
-        # Modes smaller than this (e.g., < 20 i cm^-1) are assumed to be noise, not a reaction coordinate.
-        ts_recognition_threshold_cm1 = 20.0
-        ts_recognition_threshold_eV = ts_recognition_threshold_cm1 * units.invcm
+        # Threshold to distinguish a TRUE TS mode from numerical noise.
+        # Set to 40.0 cm^-1 based on empirical data for heavy Ir complexes.
+        # This catches loose, true TS modes (e.g., 45 i cm^-1) while safely treating 
+        # lower frequency noise (e.g., ligand methyl rotations at 20-30 i cm^-1) as noise.
+        ts_recognition_threshold_cm1 = 40.0
 
         # 1. Identify imaginary modes (complex numbers with non-zero imag part or negative reals)
         imag_modes = [e for e in raw_vib_energies if abs(e.imag) > 1e-10 or e.real < -1e-10]
@@ -662,9 +663,9 @@ def vib_img(xyz_name):
                 if len(imag_modes) > 1:
                     log("Thermo", f"Treating {len(imag_modes)-1} additional small imaginary mode(s) as noise.")
             else:
-                # It's just noise at a local minimum
+                # It's just noise at a local minimum or flat region
                 log("Thermo", f"Largest imaginary mode ({max_mag_cm1:.1f} i cm^-1) is too small to be a TS.")
-                log("Thermo", f"Treating all {len(imag_modes)} imaginary mode(s) as noise (Assuming local minimum).")
+                log("Thermo", f"Treating all {len(imag_modes)} imaginary mode(s) as noise.")
         else:
             log("Thermo", "No imaginary modes found (Assuming local minimum).")
 
