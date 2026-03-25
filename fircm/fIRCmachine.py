@@ -181,13 +181,13 @@ def process_local_maxima():
                 vib_result = vib_img(base_name + ".xyz")
             except Exception as e:
                 log("Warn", f"Vibrations failed for {base_name}: {e}")
-                vib_result = [None] * 6
+                vib_result = [None] * 5
             t_vib = timepfc() - t_vib_start
             t_vib_sum += t_vib
             
             write_result(
                 ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 
-                 'G [kcal/mol]', 'G_std [kcal/mol]', 'G_qRRHO [kcal/mol]'],
+                 'G [kcal/mol]', 'G_std [kcal/mol]'],
                 [t_vib] + vib_result
             )
             log("Vib", f"-> Vibrations finished in {t_vib:.2f} s")
@@ -516,62 +516,6 @@ def get_symmetry_info(atoms, tol=1e-3):
     log("Thermo", f"Detected Point Group: {pg} -> geometry='{geometry}', symmetrynumber={sym_num}, internal_safe={internal_safe}")
     return geometry, sym_num, internal_safe
 
-def calc_qRRHO_G_correction(vib_energies_eV, T=298.15, cutoff_cm1=100.0):
-    """
-    Calculate the Grimme qRRHO (quasi-Rigid Rotor Harmonic Oscillator) correction
-    for the Gibbs free energy.
-    Reference: S. Grimme, Chem. Eur. J. 2012, 18, 9955-9964.
-    
-    Args:
-        vib_energies_eV (list/ndarray): Vibrational energies in eV.
-        T (float): Temperature in Kelvin (default: 298.15 K).
-        cutoff_cm1 (float): Cutoff frequency (nu_0) in cm^-1 (default: 100).
-        
-    Returns:
-        float: Gibbs free energy correction in eV (G_qRRHO - G_RRHO).
-               Add this value to the standard ASE Gibbs free energy.
-    """
-    k_B = const.k # Boltzmann constant (J/K)
-    h = const.h # Planck constant (J s)
-    c = const.c * 100.0 # Speed of light (cm/s)
-    R = const.R # Gas constant (J/(mol K))
-    N_A = const.N_A # Avogadro constant (mol^-1)
-    B_av = 1.0e-44 # Average moment of inertia defined by Grimme (10^-44 kg m^2)
-    nu_0 = cutoff_cm1 * c # Convert cutoff frequency to Hz
-    S_HO_tot = 0.0
-    S_qRRHO_tot = 0.0
-    for E_eV in vib_energies_eV:
-        # Ignore imaginary frequencies and exactly zero frequencies
-        if np.iscomplex(E_eV) or np.real(E_eV) <= 0.0:
-            continue
-        # Energy to frequency (Hz)
-        E_J = float(np.real(E_eV)) * const.e
-        nu = E_J / h
-        # x = h * nu / (k_B * T)
-        x = E_J / (k_B * T)
-        # 1. Harmonic Oscillator Entropy (J / (mol K))
-        S_HO_i = R * (x / (np.exp(x) - 1.0) - np.log(1.0 - np.exp(-x)))
-        # 2. Free Rotor Entropy (J / (mol K))
-        mu = h / (8.0 * np.pi**2 * nu)
-        mu_prime = (mu * B_av) / (mu + B_av)
-        val = (8.0 * np.pi**3 * mu_prime * k_B * T) / (h**2)
-        S_FR_i = R * (0.5 + 0.5 * np.log(val))
-        # 3. Damping function (Weighting factor)
-        w = 1.0 / (1.0 + (nu_0 / nu)**4)
-        # 4. Interpolated qRRHO Entropy
-        S_qRRHO_i = w * S_HO_i + (1.0 - w) * S_FR_i
-        S_HO_tot += S_HO_i
-        S_qRRHO_tot += S_qRRHO_i
-        
-    # Delta S (qRRHO - HO) in J / (mol K)
-    delta_S_J_mol_K = S_qRRHO_tot - S_HO_tot
-    # Convert Delta S to Delta G (J/mol) -> Delta G = -T * Delta S
-    delta_G_J_mol = -T * delta_S_J_mol_K
-    # Convert J/mol to eV/particle
-    delta_G_eV = delta_G_J_mol / (const.e * N_A)
-    
-    return delta_G_eV
-
 
 def generate_vibration_xyz(atoms, vib, mode_index, output, steps=5, scale=2.0):
     freqs = vib.get_frequencies()
@@ -684,7 +628,6 @@ def vib_img(xyz_name):
 
         # Dynamically obtain symmetry and geometry via PySCF
         geom_type, sym_num, _ = get_symmetry_info(img, tol=1e-3)
-        
         # 1. Standard (No correction)
         thermo_std = IdealGasThermo(
             vib_energies=vib_energies, potentialenergy=electronic_energy,
@@ -694,14 +637,7 @@ def vib_img(xyz_name):
         G_eV_std = thermo_std.get_gibbs_energy(
             temperature=g.THERMO_TEMPERATURE, pressure=g.THERMO_ATOMOSPHERE, verbose=False
         )
-        
-        # 2. Grimme's qRRHO Correction
-        # calc_qRRHO_G_correction receives the absolute values of noise frequencies.
-        delta_G_qRRHO_eV = calc_qRRHO_G_correction(vib_energies, T=g.THERMO_TEMPERATURE, cutoff_cm1=freq_cutoff_cm1)
-        G_eV_qRRHO = G_eV_std + delta_G_qRRHO_eV
-        log("Thermo", f"Calculated qRRHO correction (cutoff: {freq_cutoff_cm1} cm^-1)")
-        
-        # 3. Truhlar's Floor
+        # 2. Truhlar's Floor
         # Raise all processed frequencies to the unified floor value
         vib_energies_floor = [max(e, freq_cutoff_eV) for e in vib_energies]
         thermo_floor = IdealGasThermo(
@@ -718,17 +654,14 @@ def vib_img(xyz_name):
         zpe_kcal = g.EV_TO_KCAL_MOL * vib.get_zero_point_energy()
         E_0K_kcal = g.EV_TO_KCAL_MOL * (vib.get_zero_point_energy() + electronic_energy)
         H_kcal = g.EV_TO_KCAL_MOL * thermo_std.get_enthalpy(temperature=g.THERMO_TEMPERATURE, verbose=False)
-        
         G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
         G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor
-        G_kcal_qRRHO = g.EV_TO_KCAL_MOL * G_eV_qRRHO
-
-        # Floor is the main G, qRRHO is for reference
+        # Floor is the main G
         G_kcal = G_kcal_floor
     
         vib.clean()
         
-        return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_qRRHO]
+        return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std]
     finally:
         vib.clean()
         
