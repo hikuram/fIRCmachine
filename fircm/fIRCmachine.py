@@ -187,7 +187,7 @@ def process_local_maxima():
             
             write_result(
                 ['time_vib [s]', 'ZPE [kcal/mol]', 'E_0K [kcal/mol]', 'H [kcal/mol]', 
-                 'G [kcal/mol]', 'G_std [kcal/mol]', 'G_floor [kcal/mol]'],
+                 'G [kcal/mol]', 'G_std [kcal/mol]', 'G_qRRHO [kcal/mol]'],
                 [t_vib] + vib_result
             )
             log("Vib", f"-> Vibrations finished in {t_vib:.2f} s")
@@ -698,11 +698,11 @@ def vib_img(xyz_name):
         G_kcal_std = g.EV_TO_KCAL_MOL * G_eV_std
         G_kcal_floor = g.EV_TO_KCAL_MOL * G_eV_floor
         G_kcal_qRRHO = g.EV_TO_KCAL_MOL * G_eV_qRRHO
-        G_kcal = G_kcal_qRRHO
+        G_kcal = G_kcal_floor
     
         vib.clean()
         
-        return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_floor]
+        return [zpe_kcal, E_0K_kcal, H_kcal, G_kcal, G_kcal_std, G_kcal_qRRHO]
         
     finally:
         vib.clean()
