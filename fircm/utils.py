@@ -1,9 +1,70 @@
 from ase import Atoms
-from ase.io import read
+from ase.io import read as read_ase
 
 def log(tag: str, msg: str):
     """Helper function to standardize terminal output format."""
     print(f"[{tag:<6}] {msg}")
+
+def read(filename, index=None):
+    """
+    Universal file reader that enforces clean parsing.
+    For .traj files, it uses the standard ASE reader.
+    For .xyz files, it manually parses the file block by block,
+    strictly ignoring the second line (comment line) of every frame
+    to prevent ASE's extXYZ parser from crashing on corrupted metadata.
+    """
+    # .traj files are safe to read with ASE
+    if filename.lower().endswith(".traj"):
+        idx = index if index is not None else -1
+        return read_ase(filename, index=idx)
+
+    # Manual parser for .xyz files
+    atoms_list = []
+    with open(filename, 'r', encoding='utf-8') as f:
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                natoms = int(line)
+            except ValueError:
+                # Skip invalid lines between frames if any
+                continue
+
+            # Read the comment line and completely ignore it
+            _ = f.readline()
+
+            symbols = []
+            positions = []
+            for _ in range(natoms):
+                coord_line = f.readline().split()
+                if len(coord_line) >= 4:
+                    symbols.append(coord_line[0])
+                    positions.append([
+                        float(coord_line[1]), 
+                        float(coord_line[2]), 
+                        float(coord_line[3])
+                    ])
+
+            atoms = Atoms(symbols=symbols, positions=positions)
+            atoms_list.append(atoms)
+
+    if not atoms_list:
+        raise ValueError(f"Could not read any valid XYZ frames from {filename}")
+
+    # Handle indexing similar to ASE's read function
+    if index is None or index == ":" or index == slice(None):
+        return atoms_list
+    elif isinstance(index, slice):
+        return atoms_list[index]
+    else:
+        # Default single-frame retrieval (e.g., -1 for the last frame)
+        idx = index if isinstance(index, int) else -1
+        return atoms_list[idx]
 
 def rescue_xyz_read(file_name, index=-1):
     """
@@ -29,7 +90,7 @@ def rescue_xyz_read(file_name, index=-1):
     try:
         # Attempt 1: Standard ASE read.
         # ASE will automatically detect extxyz when possible.
-        atoms = read(file_name, index=index)
+        atoms = read_ase(file_name, index=index)
         return atoms
 
     except Exception as e:
@@ -41,7 +102,7 @@ def rescue_xyz_read(file_name, index=-1):
         try:
             # Attempt 2: Force plain XYZ format.
             # This treats the file as plain XYZ and ignores extended XYZ metadata.
-            atoms = read(file_name, index=index, format="xyz")
+            atoms = read_ase(file_name, index=index, format="xyz")
             atoms.calc = None
             return atoms
 
