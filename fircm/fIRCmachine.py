@@ -334,7 +334,7 @@ def opt_img(xyz_name: str) -> Atoms:
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up an ASE optimizer (L-BFGS)
     opt = LBFGS(img, trajectory=img_name+"_opt.traj", logfile=img_name+"_opt.log")
-    opt.run(fmax=0.01, steps=10000)
+    opt.run(fmax=g.OPT_FMAX, steps=10000)
     write(img_name+"_opt.xyz", img)
     images = read(img_name+"_opt.traj", index=':')
     traj_to_xyz(images, img_name+"_opt.traj.xyz")
@@ -351,12 +351,14 @@ def opt_sella_img(xyz_name: str) -> Atoms:
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
+    # Override internal coordinate setting if forced
+    use_internal = False if g.SELLA_FORCE_CARTESIAN else g.SELLA_INTERNAL
     # Set up a Sella Dynamics object (order=0)
     dyn = Sella(
         img, internal=g.SELLA_INTERNAL, order=0, constraints=None,
         trajectory=img_name+'_opt.traj', logfile=img_name+"_opt.log"
     )
-    dyn.run(fmax=4e-4, steps=1000)
+    dyn.run(fmax=g.OPT_FMAX, steps=1000)
     write(img_name+"_opt.xyz", img)
     images = read(img_name+"_opt.traj", index=':')
     traj_to_xyz(images, img_name+"_opt.traj.xyz")
@@ -373,15 +375,22 @@ def tsopt_img(xyz_name: str) -> Atoms:
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
-    if g.SELLA_INTERNAL_AUTO:
-        # Check the symmetry of the initial structure
+    
+    # 1. Force Cartesian if requested, bypassing symmetry checks
+    if g.SELLA_FORCE_CARTESIAN:
+        g.SELLA_INTERNAL = False
+        log("Opt", "SELLA_FORCE_CARTESIAN is True. Bypassing symmetry check.")
+    # 2. Otherwise, auto-detect internal coordinate safety
+    elif g.SELLA_INTERNAL_AUTO:
         _, _, g.SELLA_INTERNAL = get_symmetry_info(img, tol=1e-3)
     # Set up a Sella Dynamics object
     dyn = Sella(
         img, internal=g.SELLA_INTERNAL, order=1, constraints=None,
         trajectory=img_name+'_tsopt.traj', logfile=img_name+"_tsopt.log"
     )
-    dyn.run(fmax=4e-4, steps=1000)
+    # Apply strict convergence criterion for TS optimization
+    dyn.run(fmax=g.TSOPT_FMAX, steps=1000)
+    
     write(img_name+"_tsopt.xyz", img)
     images = read(img_name+"_tsopt.traj", index=':')
     traj_to_xyz(images, img_name+"_tsopt.traj.xyz")
