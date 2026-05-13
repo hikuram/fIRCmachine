@@ -155,13 +155,17 @@ def process_local_maxima():
     # Optional workflow: pick representative optimized points for thermochemistry.
     vib_files = peak_files
     if g.PICK_OPTPOINTS_ON:
-        log("Info", "Picking optimized points for thermochemistry ...")
-        g.ORIG_R_CSV = g.R_CSV
-        vib_files, opt_indices = make_optpoints_traj(peak_files)
-        optpoints_csv = "optpoints/result_optpoints.csv"
-        write_energies("optpoints/optpoints.traj", csv_name=optpoints_csv, previous_image=opt_indices)
-        df_new = pd.read_csv(optpoints_csv)
-        g.R_CSV = optpoints_csv
+        if len(peak_files) < 2:
+            log("Info", "Single-point trajectory detected. Bypassing PICK_OPTPOINTS_ON.")
+            g.PICK_OPTPOINTS_ON = False
+        else:
+            log("Info", "Picking optimized points for thermochemistry ...")
+            g.ORIG_R_CSV = g.R_CSV
+            vib_files, opt_indices = make_optpoints_traj(peak_files)
+            optpoints_csv = "optpoints/result_optpoints.csv"
+            write_energies("optpoints/optpoints.traj", csv_name=optpoints_csv, previous_image=opt_indices)
+            df_new = pd.read_csv(optpoints_csv)
+            g.R_CSV = optpoints_csv
 
     # Sub-iteration 2: include endpoints or reduced representative points
     t_vib_sum = 0
