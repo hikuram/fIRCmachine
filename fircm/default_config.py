@@ -23,6 +23,10 @@ CALC_TYPE: str = "orbmol"  # "orbmol", "orbmol+alpb", "pyscf", "pyscf_high"
 REFINE_CALC_TYPE: str = "pyscf_high"
 DEVICE: str = "cuda"  # "cuda" or "cpu"
 
+# TBLite settings for Delta ML approach
+# Set to "hybrid" to use GFN1-xTB during DMF and GFN2-xTB for everything else.
+TBLITE_METHOD: str = "hybrid"  # "hybrid", "GFN1-xTB", "GFN2-xTB"
+
 # Model settings
 MULT: int = 1
 THERMO_TEMPERATURE: float = 298.15
