@@ -7,10 +7,10 @@ import os
 import numpy as np
 import pandas as pd
 from typing import List, Optional
-from ase.io import read, write
+from ase.io import write
 from ase.io.trajectory import Trajectory
 from scipy.signal import find_peaks
-from utils import log
+from utils import log, read
 try:
     import rmsd
     HAS_RMSD = True
