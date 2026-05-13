@@ -166,7 +166,15 @@ def make_calculator(calc_type, atoms, base_name):
         solvation = ("alpb", "water")
         acc = 0.02
         calc_mlip =  ORBCalculator(orbff, device=g.DEVICE)
-        calc_delta = DualTBLite(method="GFN1-xTB", charge=g.CHARGE, multiplicity=g.MULT, solvation=solvation, accuracy=acc, verbosity=0)
+        
+        # --- Resolve TBLite method ---
+        # If 'hybrid' is passed to the calculator builder, it behaves as GFN2-xTB.
+        # (The temporary switch to GFN1-xTB is handled in fIRCmachine.py during DMF)
+        current_tblite_method = getattr(g, 'TBLITE_METHOD', 'GFN2-xTB')
+        if current_tblite_method == "hybrid":
+            current_tblite_method = "GFN2-xTB"
+            
+        calc_delta = DualTBLite(method=current_tblite_method, charge=g.CHARGE, multiplicity=g.MULT, solvation=solvation, accuracy=acc, verbosity=0)
         calculator = LinearCombinationCalculator([calc_mlip, calc_delta], [1, 1])
 
     else:
