@@ -11,6 +11,7 @@ OPT_OPTPOINTS_AGAIN_ON: bool = False
 VIB_ON: bool = True
 REFINE_ENERGY_ON: bool = True
 OTHER_JOBS_EXAMPLE_ON: bool = False
+CALC_RMSD_ON: bool = True
 WRITE_SUGGESTIONS_ON: bool = True
 SUGGESTIONS: list = []
 SAVE_FIG_ON: bool = True
