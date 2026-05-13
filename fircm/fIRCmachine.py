@@ -16,6 +16,7 @@ from ase.io.trajectory import Trajectory
 from ase.optimize import LBFGS
 from ase.vibrations import Vibrations
 from ase.thermochemistry import IdealGasThermo
+from ase.constraints import FixAtoms
 
 # Project modules
 import default_config as g
@@ -331,6 +332,11 @@ def opt_img(xyz_name: str) -> Atoms:
     img_name = os.path.splitext(xyz_name)[0]
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
+    # --- Apply Constraints ---
+    if getattr(g, 'FIXED_ATOMS', []):
+        img.set_constraint(FixAtoms(indices=g.FIXED_ATOMS))
+        log("Opt", f"Applied FixAtoms constraint to indices: {g.FIXED_ATOMS}")
+    # -------------------------
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up an ASE optimizer (L-BFGS)
     opt = LBFGS(img, trajectory=img_name+"_opt.traj", logfile=img_name+"_opt.log")
@@ -350,6 +356,11 @@ def opt_sella_img(xyz_name: str) -> Atoms:
     img_name = os.path.splitext(xyz_name)[0]
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
+    # --- Apply Constraints ---
+    if getattr(g, 'FIXED_ATOMS', []):
+        img.set_constraint(FixAtoms(indices=g.FIXED_ATOMS))
+        log("Opt", f"Applied FixAtoms constraint to indices: {g.FIXED_ATOMS}")
+    # -------------------------
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Override internal coordinate setting if forced
     use_internal = False if g.SELLA_FORCE_CARTESIAN else g.SELLA_INTERNAL
@@ -374,6 +385,11 @@ def tsopt_img(xyz_name: str) -> Atoms:
     img_name = os.path.splitext(xyz_name)[0]
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
+    # --- Apply Constraints ---
+    if getattr(g, 'FIXED_ATOMS', []):
+        img.set_constraint(FixAtoms(indices=g.FIXED_ATOMS))
+        log("Opt", f"Applied FixAtoms constraint to indices: {g.FIXED_ATOMS}")
+    # -------------------------
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     
     # 1. Force Cartesian if requested, bypassing symmetry checks
@@ -406,6 +422,11 @@ def irc_img(xyz_name: str) -> List[float]:
     img_name = os.path.splitext(xyz_name)[0]
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
+    # --- Apply Constraints ---
+    if getattr(g, 'FIXED_ATOMS', []):
+        img.set_constraint(FixAtoms(indices=g.FIXED_ATOMS))
+        log("Opt", f"Applied FixAtoms constraint to indices: {g.FIXED_ATOMS}")
+    # -------------------------
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
     # Set up a Sella IRC object
     opt = AdaptiveIRC(
