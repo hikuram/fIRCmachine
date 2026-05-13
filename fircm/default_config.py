@@ -38,16 +38,17 @@ THERMO_ATOMOSPHERE: float = 101325.0
 NMOVE: int = 40
 UPDATE_TEVAL: bool = False
 DMF_CONVERGENCE: str = "tight"
-# -Sella & ASE Optimization
+# -Sella
 SELLA_INTERNAL_AUTO: bool = True
 SELLA_INTERNAL: bool = True
 SELLA_FORCE_CARTESIAN: bool = False  # Override symmetry check and force Cartesian
 IRC_DX_INIT: float = 0.06
 IRC_DX_MAX: float = 0.12
 IRC_DX_MIN: float = 0.02
-
-OPT_FMAX: float = 0.01               # Convergence criterion for standard optimization
-TSOPT_FMAX: float = 4e-4             # Convergence criterion for TS optimization
+# -Sella & ASE Optimization
+OPT_FMAX: float = 0.01     # Convergence criterion for standard optimization
+TSOPT_FMAX: float = 4e-4   # Convergence criterion for TS optimization
+FIXED_ATOMS: list = []     # Fixed atoms constraints (list of integer indices, e.g., [0, 1, 2])
 
 # Physical constants
 EV_TO_KCAL_MOL: float = 23.0605
