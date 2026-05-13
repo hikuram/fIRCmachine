@@ -11,6 +11,11 @@ from ase.io import read, write
 from ase.io.trajectory import Trajectory
 from scipy.signal import find_peaks
 from utils import log
+try:
+    import rmsd
+    HAS_RMSD = True
+except ImportError:
+    HAS_RMSD = False
 
 # Project modules
 import default_config as g
@@ -118,6 +123,13 @@ def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image
     traj_out = Trajectory(tmp_name, "w") if energy_recalc else None
     traj_in = Trajectory(traj_name)
     
+    calc_rmsd = getattr(g, 'CALC_RMSD_ON', False) and HAS_RMSD
+    if getattr(g, 'CALC_RMSD_ON', False) and not HAS_RMSD:
+        log("Warn", "rmsd module is not installed. Skipping RMSD calculation.")
+
+    pos_0 = None
+    pos_prev = None
+    
     try:
         for i, atoms in enumerate(traj_in):
             if energy_recalc:
@@ -127,10 +139,46 @@ def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image
                 energy_ev = atoms.get_potential_energy()
                 energy_hartree = energy_ev * g.EV_TO_HARTREE
                 energy_kcal = energy_ev * g.EV_TO_KCAL_MOL
-                data.append([i, energy_ev, energy_hartree, energy_kcal])
             except Exception as e:
                 log("Warn", f"Missing value for {traj_name} frame {i}: {e}")
-                data.append([i, None, None, None])
+                energy_ev, energy_hartree, energy_kcal = None, None, None
+
+            # === RMSD calculation (Heavy atoms only) ===
+            rmsd_0 = None
+            rmsd_prev = None
+            if calc_rmsd:
+                # Extract positions and atomic numbers
+                pos = atoms.get_positions()
+                atomic_numbers = atoms.get_atomic_numbers()
+                
+                # Filter out light elements (Hydrogen, Z=1)
+                heavy_mask = atomic_numbers > 1
+                heavy_pos = pos[heavy_mask]
+                
+                if len(heavy_pos) > 0:
+                    # Translate centroid to origin
+                    heavy_pos_centered = heavy_pos - rmsd.centroid(heavy_pos)
+                    
+                    if i == 0:
+                        pos_0 = heavy_pos_centered
+                        pos_prev = heavy_pos_centered
+                        rmsd_0 = 0.0
+                        rmsd_prev = 0.0
+                    else:
+                        # Calculate optimal rotation and RMSD using Kabsch algorithm
+                        rmsd_0 = rmsd.kabsch_rmsd(pos_0, heavy_pos_centered)
+                        rmsd_prev = rmsd.kabsch_rmsd(pos_prev, heavy_pos_centered)
+                        pos_prev = heavy_pos_centered
+                else:
+                    # Fallback if the system only contains hydrogens (edge case)
+                    rmsd_0 = 0.0
+                    rmsd_prev = 0.0
+            # ===========================================
+
+            row = [i, energy_ev, energy_hartree, energy_kcal]
+            if calc_rmsd:
+                row.extend([rmsd_0, rmsd_prev])
+            data.append(row)
             
             if energy_recalc:
                 traj_out.write(atoms)
@@ -144,14 +192,19 @@ def write_energies(traj_name, csv_name=None, energy_recalc=False, previous_image
     if energy_recalc:
         os.replace(tmp_name, traj_name)
         
-    df = pd.DataFrame(data, columns=["# image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"])
+    cols = ["# image", "energy [eV]", "energy [hartree]", "energy [kcal/mol]"]
+    if calc_rmsd:
+        # Update column names to clarify heavy-atom usage
+        cols.extend(["Heavy-RMSD vs frame 0 [Å]", "Heavy-RMSD vs prev frame [Å]"])
+        
+    df = pd.DataFrame(data, columns=cols)
     
     if previous_image is not None:
         if len(previous_image) != len(df):
             raise ValueError("Length of previous_image must match the number of frames")
         df["previous_#image"] = previous_image
-        cols = ["# image", "previous_#image"] + [c for c in df.columns if c not in ["# image", "previous_#image"]]
-        df = df[cols]
+        cols_reorder = ["# image", "previous_#image"] + [c for c in df.columns if c not in ["# image", "previous_#image"]]
+        df = df[cols_reorder]
         
     # Calculate relative energy vs reactant
     if df["energy [kcal/mol]"].notna().any():
