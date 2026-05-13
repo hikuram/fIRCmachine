@@ -70,6 +70,13 @@ if __name__ == '__main__':
         log("Info", f"{g.R_CSV} will be overwritten")
     else:
         log("Info", f"{g.R_CSV} will be made")
+        
+    log("System", "--- Global Configuration Dump ---")
+    for key in dir(g):
+        if key.isupper() and not key.startswith("_"):
+            val = getattr(g, key)
+            log("Config", f"{key} = {val}")
+    log("System", "---------------------------------")
     
     # Main
     if g.INIT_PATH_SEARCH_ON:
