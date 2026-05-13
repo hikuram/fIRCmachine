@@ -1,9 +1,23 @@
 from ase import Atoms
 from ase.io import read as read_ase
+import os
+from datetime import datetime
+import default_config as g
 
 def log(tag: str, msg: str):
-    """Helper function to standardize terminal output format."""
+    """
+    Helper function to standardize terminal output format and automatically 
+    append it to fircm.log in the current working directory.
+    """
     print(f"[{tag:<6}] {msg}")
+    
+    log_file = os.path.join(getattr(g, 'CURRENT_DIR', '.'), "fircm.log")
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"{ts} [{tag:<6}] {msg}\n")
+    except Exception as e:
+        pass
 
 def read(filename, index=None):
     """
