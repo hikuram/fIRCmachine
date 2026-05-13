@@ -11,7 +11,7 @@ import numpy as np
 import scipy.constants as const
 import pandas as pd
 from ase import Atoms, units
-from ase.io import read, write
+from ase.io import write
 from ase.io.trajectory import Trajectory
 from ase.optimize import LBFGS
 from ase.vibrations import Vibrations
@@ -29,7 +29,7 @@ from pyscf_exporter import export_pyscf_single_point
 from ase_calculators import make_calculator
 from traj_utils import extract_peaks_from_traj, traj_to_xyz, write_energies, \
     split_traj_to_xyz, select_highest_peak_file
-from utils import log
+from utils import log, read
 
 # Overwrite global variables
 #g.INIT_PATH_SEARCH_ON = False
