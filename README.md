@@ -24,6 +24,16 @@ pip install -r requirements.txt
 
 *Key dependencies include:* `ase`, `pydmf`, `sella`, `orb_models`, `pyscf` (or `gpu4pyscf`), `tblite`, `cupy`.
 
+- [ASE](https://wiki.fysik.dtu.dk/ase/)
+- [pydmf](https://github.com/shin1koda/dmf)
+- [Sella](https://github.com/zadorlab/sella)
+- [orb_models](https://github.com/orbital-materials/orb-models)
+- [PySCF](https://pyscf.org/)
+- [gpu4pyscf](https://github.com/pyscf/gpu4pyscf)
+- [tblite](https://github.com/tblite/tblite)
+- [cupy](https://cupy.dev/)
+- numpy, pandas, scipy, seaborn
+
 ## Usage
 
 The toolkit provides specialized entry points depending on your required workflow:
