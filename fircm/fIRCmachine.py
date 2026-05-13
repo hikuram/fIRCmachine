@@ -255,22 +255,40 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     coefs = mxflx_fbenm.coefs.copy()
     np.save('DMF_init_coefs', coefs)
     
+    # --- HYBRID MODE INTERCEPTION (Start) ---
+    original_tblite_method = getattr(g, 'TBLITE_METHOD', 'GFN2-xTB')
+    if original_tblite_method == "hybrid":
+        g.TBLITE_METHOD = "GFN1-xTB"
+        log("Info", "Hybrid mode active: Temporarily downgrading TBLITE_METHOD to GFN1-xTB for DMF optimization.")
+    # ----------------------------------------
+    
     # Set up and solve Direct MaxFlux
     mxflx = DirectMaxFlux(ref_images, coefs=coefs, nmove=g.NMOVE, update_teval=g.UPDATE_TEVAL)
+    
     # Set up calculator
     for img in mxflx.images:
         img.info["charge"] = g.CHARGE
         img.info["spin"] = g.MULT
         img.calc = make_calculator(g.CALC_TYPE, img, "DMF_init")
+        
     # Solve
     mxflx.add_ipopt_options({'output_file': 'DMF_ipopt.out', "print_level": 0, "file_print_level": 5})
     try:
         mxflx.solve(tol=g.DMF_CONVERGENCE)
     except Exception as e:
+        # Restore state even if DMF fails, to prevent polluting subsequent workflow steps
+        if original_tblite_method == "hybrid":
+            g.TBLITE_METHOD = "hybrid"
         write("DMF_last_before_error.xyz", mxflx.images)
         write("DMF_last_before_error.traj", mxflx.images)
         log("Fail", f"abort: DirectMaxFlux.solve failed: {e}")
         sys.exit(f"abort: DirectMaxFlux.solve failed: {e}")
+        
+    # --- HYBRID MODE INTERCEPTION (End) ---
+    if original_tblite_method == "hybrid":
+        g.TBLITE_METHOD = "hybrid"
+        log("Info", "DMF optimization complete: Restored TBLITE_METHOD to hybrid (GFN2-xTB).")
+    # --------------------------------------
     
     # DMF_final.traj: Recompute SPC for mxflx.images (some frames lack energy)
     final_images = []
@@ -279,6 +297,8 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
         atoms = Atoms(positions=img.get_positions(), numbers=img.get_atomic_numbers())
         atoms.info["charge"] = g.CHARGE
         atoms.info["spin"] = g.MULT
+        
+        # Here, g.CALC_TYPE will correctly resolve to GFN2-xTB because g.TBLITE_METHOD was restored
         atoms.calc = make_calculator(g.CALC_TYPE, atoms, "DMF_final")
         try:
             # Explicitly calculate energy
