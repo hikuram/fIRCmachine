@@ -54,6 +54,12 @@ def extract_peaks_from_traj(trajfile: str, maxima_filename: str, prominence: flo
     base_name = os.path.splitext(os.path.basename(maxima_filename))[0]
     log("Info", f"Detected {len(peaks)} peak(s) (excluding endpoints). Saving structures:")
     
+    if len(peaks) > 0:
+        max_peak_idx = peaks[np.argmax(energies_filled[peaks])]
+        g.HIGHEST_PEAK_FILE = f"{base_name}_{max_peak_idx}.xyz"
+    else:
+        g.HIGHEST_PEAK_FILE = None
+
     peak_files = []
     # Always include the first and last frames as endpoints
     endpoints = np.array([0, len(traj) - 1])
@@ -79,27 +85,6 @@ def split_traj_to_xyz(trajfile: str, prefix: str) -> List[str]:
         xyz_files.append(filename)
 
     return xyz_files
-
-def select_highest_peak_file(peak_files: List[str]) -> Optional[str]:
-    """Select the highest-energy internal peak from the detected peak files."""
-    if len(peak_files) <= 2:
-        return None
-
-    max_energy = -np.inf
-    max_peak_file = None
-
-    for peak_file in peak_files[1:-1]:
-        atoms = read(peak_file)
-        try:
-            energy = atoms.get_potential_energy()
-        except Exception:
-            energy = -np.inf
-
-        if energy > max_energy:
-            max_energy = energy
-            max_peak_file = peak_file
-
-    return max_peak_file
 
 def traj_to_xyz(traj, out_xyz_path):
     """Convert an ASE trajectory list to an .xyz file format."""
