@@ -1,6 +1,6 @@
 # fIRCmachine
 
-A pragmatic, highly automated Python toolkit for computational chemistry. 
+An automated Python toolkit for computational chemistry. 
 
 fIRCmachine orchestrates reaction path searching (FB-ENM/DMF), Intrinsic Reaction Coordinate (IRC) calculations, Transition State (TS) optimizations, and vibrational analysis (VIB). It is designed to be robust, gracefully handling noisy Potential Energy Surfaces (PES) and corrupted trajectory files.
 
