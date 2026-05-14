@@ -362,8 +362,6 @@ def opt_sella_img(xyz_name: str) -> Atoms:
         log("Opt", f"Applied FixAtoms constraint to indices: {g.FIXED_ATOMS}")
     # -------------------------
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
-    # Override internal coordinate setting if forced
-    use_internal = False if g.SELLA_FORCE_CARTESIAN else g.SELLA_INTERNAL
     # Set up a Sella Dynamics object (order=0)
     dyn = Sella(
         img, internal=g.SELLA_INTERNAL, order=0, constraints=None,
@@ -391,13 +389,8 @@ def tsopt_img(xyz_name: str) -> Atoms:
         log("Opt", f"Applied FixAtoms constraint to indices: {g.FIXED_ATOMS}")
     # -------------------------
     img.calc = make_calculator(g.CALC_TYPE, img, img_name)
-    
-    # 1. Force Cartesian if requested, bypassing symmetry checks
-    if g.SELLA_FORCE_CARTESIAN:
-        g.SELLA_INTERNAL = False
-        log("Opt", "SELLA_FORCE_CARTESIAN is True. Bypassing symmetry check.")
-    # 2. Otherwise, auto-detect internal coordinate safety
-    elif g.SELLA_INTERNAL_AUTO:
+    if g.SELLA_INTERNAL_AUTO:
+        # Check the symmetry of the initial structure
         _, _, g.SELLA_INTERNAL = get_symmetry_info(img, tol=1e-3)
     # Set up a Sella Dynamics object
     dyn = Sella(
