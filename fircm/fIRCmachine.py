@@ -29,7 +29,7 @@ from pyscf_exporter import export_pyscf_single_point
 # --- Separated Modules ---
 from ase_calculators import make_calculator
 from traj_utils import extract_peaks_from_traj, traj_to_xyz, write_energies, \
-    split_traj_to_xyz, select_highest_peak_file
+    split_traj_to_xyz
 from utils import log, read
 
 # Overwrite global variables
@@ -728,7 +728,7 @@ def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoi
 
     start_file = peak_files[0]
     end_file = peak_files[-1]
-    middle_file = select_highest_peak_file(peak_files)
+    middle_file = getattr(g, 'HIGHEST_PEAK_FILE', None)
 
     branch_plan = [(start_file, 0)]
     if middle_file is not None:
