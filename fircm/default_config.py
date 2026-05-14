@@ -1,5 +1,6 @@
 
 # Workflow flags
+INIT_PATH_METHOD: str = "DMF"  # Options: "DMF", "NEB", "SCAN"
 INIT_PATH_SEARCH_ON: bool = True
 INIT_RECALC_MODE_ON: bool = False
 REFINE_INPUT_ON: bool = True
@@ -38,6 +39,16 @@ THERMO_ATOMOSPHERE: float = 101325.0
 NMOVE: int = 40
 UPDATE_TEVAL: bool = False
 DMF_CONVERGENCE: str = "tight"
+# NEB Settings
+NEB_IMAGES: int = 10
+NEB_SPRING_CONSTANT: float = 0.1
+NEB_CLIMB: bool = True
+# SCAN (Elongation/Torsion) Settings
+SCAN_TYPE: str = "bond"  # Options: "bond", "angle", "dihedral"
+SCAN_INDICES: list = [0, 1]  # Atom indices (0-indexed). e.g., [0, 1] for bond, [0, 1, 2, 3] for dihedral
+SCAN_START_VAL: float = None # If None, the initial value of the reactant geometry is used
+SCAN_END_VAL: float = 2.0    # Target value (Angstrom for bond, degree for angle/dihedral)
+SCAN_STEPS: int = 10
 # -Sella
 SELLA_INTERNAL_AUTO: bool = True
 SELLA_INTERNAL: bool = True
