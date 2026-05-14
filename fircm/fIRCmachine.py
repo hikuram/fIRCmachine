@@ -355,6 +355,7 @@ def generate_path_neb(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     opt = LBFGS(neb, trajectory='init_path.traj', logfile='NEB_opt.log')
     opt.run(fmax=g.OPT_FMAX)
     
+    write('init_path.traj', images)
     traj_to_xyz(images, 'init_path.xyz')
     write_energies('init_path.traj', g.R_CSV)
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/init_path.traj")
