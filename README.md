@@ -33,6 +33,7 @@ pip install -r requirements.txt
 - [tblite](https://github.com/tblite/tblite)
 - [cupy](https://cupy.dev/)
 - numpy, pandas, scipy, seaborn
+- optional: rmsd for Heavy-RMSD monitoring
 
 ## Usage
 
