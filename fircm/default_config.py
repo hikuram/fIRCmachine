@@ -41,7 +41,6 @@ DMF_CONVERGENCE: str = "tight"
 # -Sella
 SELLA_INTERNAL_AUTO: bool = True
 SELLA_INTERNAL: bool = True
-SELLA_FORCE_CARTESIAN: bool = False  # Override symmetry check and force Cartesian
 IRC_DX_INIT: float = 0.06
 IRC_DX_MAX: float = 0.12
 IRC_DX_MIN: float = 0.02
