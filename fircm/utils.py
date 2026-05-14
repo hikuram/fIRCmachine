@@ -71,13 +71,13 @@ def read(filename, index=None):
         raise ValueError(f"Could not read any valid XYZ frames from {filename}")
 
     # Handle indexing similar to ASE's read function
-    if index is None or index == ":" or index == slice(None):
+    if index == ":" or index == slice(None):
         return atoms_list
     elif isinstance(index, slice):
         return atoms_list[index]
     else:
         # Default single-frame retrieval (e.g., -1 for the last frame)
-        idx = index if isinstance(index, int) else -1
+        idx = index if index is not None else -1
         return atoms_list[idx]
 
 def rescue_xyz_read(file_name, index=-1):
