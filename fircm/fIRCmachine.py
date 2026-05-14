@@ -16,7 +16,8 @@ from ase.io.trajectory import Trajectory
 from ase.optimize import LBFGS
 from ase.vibrations import Vibrations
 from ase.thermochemistry import IdealGasThermo
-from ase.constraints import FixAtoms
+from ase.constraints import FixAtoms, FixInternals
+from ase.neb import NEB
 
 # Project modules
 import default_config as g
@@ -36,12 +37,15 @@ from utils import log, read
 #g.INIT_PATH_SEARCH_ON = False
 # Example settings are described in README or default_config.py.
 
-
-# FB-ENM/DMF optimization (first stage)
+# FB-ENM/DMF optimization (first stage) -> Expanded for NEB/SCAN
 def run_initial_path_search():
-    log("Path", "Reading reactant.xyz and product.xyz ...")
+    log("Path", "Reading reactant.xyz ...")
     reactant = read("reactant.xyz")
-    product = read("product.xyz")
+    
+    product = None
+    if getattr(g, 'INIT_PATH_METHOD', 'DMF') in ["DMF", "NEB"]:
+        log("Path", "Reading product.xyz ...")
+        product = read("product.xyz")
     
     # == Refine input geometries ===================
     t_opt_start = timepfc()
@@ -49,23 +53,34 @@ def run_initial_path_search():
         log("Opt", "Refining input geometries ...")
         if g.USE_SELLA_IN_OPT:
             reactant = opt_sella_img("reactant.xyz")
-            product = opt_sella_img("product.xyz")
+            if product is not None:
+                product = opt_sella_img("product.xyz")
         else:
             reactant = opt_img("reactant.xyz")
-            product = opt_img("product.xyz")
+            if product is not None:
+                product = opt_img("product.xyz")
         t_opt = timepfc() - t_opt_start
         log("Opt", f"-> Input geometries refined in {t_opt:.2f} s")
         txt = f"* Optimize_Total        | {t_opt:>12.2f} s  *\n"
         write_line(g.TIME_LOG_NAME, txt)
     
-    # == Run DMF ===================
+    # == Run Initial Path Generation ===================
+    t_path_start = timepfc()
+    method = getattr(g, 'INIT_PATH_METHOD', 'DMF')
+    log("Path", f"Generating initial path using {method} ...")
     
-    t_dmf_start = timepfc()
-    log("Path", "Running FB-ENM and DirectMaxFlux ...")
-    mepopt_dmf(reactant, product)
-    t_dmf = timepfc() - t_dmf_start
-    log("Path", f"-> DMF finished in {t_dmf:.2f} s")
-    txt = f"* FB-ENM/DMF_Total      | {t_dmf:>12.2f} s  *\n"
+    if method == "DMF":
+        mepopt_dmf(reactant, product)
+    elif method == "NEB":
+        generate_path_neb(reactant, product)
+    elif method == "SCAN":
+        generate_path_scan(reactant)
+    else:
+        sys.exit(f"abort: Unknown INIT_PATH_METHOD: {method}")
+        
+    t_path = timepfc() - t_path_start
+    log("Path", f"-> {method} finished in {t_path:.2f} s")
+    txt = f"* Path_Gen_Total        | {t_path:>12.2f} s  *\n"
     write_line(g.TIME_LOG_NAME, txt)
 
 # Repeat for each local maximum
@@ -314,17 +329,94 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     traj_to_xyz(images_tmax, 'DMF_tmax.xyz')
     log("I/O", "Wrote DMF_tmax.traj and .xyz")
     # final_images: save images to .traj
-    write('DMF_final.traj', final_images)
-    traj_to_xyz(final_images, 'DMF_final.xyz')
-    log("I/O", "Wrote DMF_final.traj and .xyz")
+    write('init_path.traj', final_images)
+    traj_to_xyz(final_images, 'init_path.xyz')
+    log("I/O", "Wrote init_path.traj and .xyz")
     # Write results
-    write_energies('DMF_final.traj', g.R_CSV)
-    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/DMF_final.traj")
+    write_energies('init_path.traj', g.R_CSV)
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/init_path.traj")
+
+
+# Run Nudged Elastic Band (NEB)
+def generate_path_neb(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
+    images = [reactant_atoms]
+    for i in range(g.NEB_IMAGES - 2):
+        images.append(reactant_atoms.copy())
+    images.append(product_atoms)
+    
+    neb = NEB(images, k=g.NEB_SPRING_CONSTANT, climb=g.NEB_CLIMB)
+    neb.interpolate('idpp')
+    
+    for i, img in enumerate(images[1:-1]):
+        img.info["charge"] = g.CHARGE
+        img.info["spin"] = g.MULT
+        img.calc = make_calculator(g.CALC_TYPE, img, f"NEB_img_{i+1}")
+        
+    opt = LBFGS(neb, trajectory='init_path.traj', logfile='NEB_opt.log')
+    opt.run(fmax=g.OPT_FMAX)
+    
+    traj_to_xyz(images, 'init_path.xyz')
+    write_energies('init_path.traj', g.R_CSV)
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/init_path.traj")
+    log("I/O", "Wrote init_path.traj and init_path.xyz")
+
+
+# Run Relaxed PES Scan using ASE constraints (Elongation / Torsion)
+def generate_path_scan(reactant_atoms: Atoms) -> None:
+    images = []
+    current_atoms = reactant_atoms.copy()
+    
+    if g.SCAN_START_VAL is None:
+        if g.SCAN_TYPE == "bond":
+            start_val = current_atoms.get_distance(g.SCAN_INDICES[0], g.SCAN_INDICES[1])
+        elif g.SCAN_TYPE == "angle":
+            start_val = current_atoms.get_angle(g.SCAN_INDICES[0], g.SCAN_INDICES[1], g.SCAN_INDICES[2])
+        elif g.SCAN_TYPE == "dihedral":
+            start_val = current_atoms.get_dihedral(g.SCAN_INDICES[0], g.SCAN_INDICES[1], g.SCAN_INDICES[2], g.SCAN_INDICES[3])
+        else:
+            sys.exit(f"abort: Unknown SCAN_TYPE: {g.SCAN_TYPE}")
+    else:
+        start_val = g.SCAN_START_VAL
+        
+    end_val = g.SCAN_END_VAL
+    steps = g.SCAN_STEPS
+    
+    for step in range(steps + 1):
+        val = start_val + (end_val - start_val) * step / steps
+        log("SCAN", f"Step {step}/{steps} - Target {g.SCAN_TYPE}: {val:.3f}")
+        
+        if g.SCAN_TYPE == "bond":
+            current_atoms.set_distance(g.SCAN_INDICES[0], g.SCAN_INDICES[1], val, fix=0)
+            cons = FixInternals(bonds=[(val, g.SCAN_INDICES)])
+        elif g.SCAN_TYPE == "angle":
+            current_atoms.set_angle(g.SCAN_INDICES[0], g.SCAN_INDICES[1], g.SCAN_INDICES[2], val)
+            cons = FixInternals(angles=[(val, g.SCAN_INDICES)])
+        elif g.SCAN_TYPE == "dihedral":
+            current_atoms.set_dihedral(g.SCAN_INDICES[0], g.SCAN_INDICES[1], g.SCAN_INDICES[2], g.SCAN_INDICES[3], val)
+            cons = FixInternals(dihedrals=[(val, g.SCAN_INDICES)])
+            
+        current_atoms.set_constraint(cons)
+        current_atoms.info["charge"] = g.CHARGE
+        current_atoms.info["spin"] = g.MULT
+        current_atoms.calc = make_calculator(g.CALC_TYPE, current_atoms, f"SCAN_opt_{step}")
+        
+        opt = LBFGS(current_atoms, logfile=f"SCAN_opt_{step}.log")
+        opt.run(fmax=g.OPT_FMAX)
+        
+        images.append(current_atoms.copy())
+        
+    write('init_path.traj', images)
+    traj_to_xyz(images, 'init_path.xyz')
+    write_energies('init_path.traj', g.R_CSV)
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/init_path.traj")
+    log("I/O", "Wrote init_path.traj and init_path.xyz")
+
 
 # Write text file
 def write_line(txtfile_name, txt):
     with open(txtfile_name, 'a', encoding='utf-8') as f:
         f.write(txt)
+
 
 # Run optimization with ASE
 def opt_img(xyz_name: str) -> Atoms:
@@ -356,6 +448,7 @@ def opt_sella_img(xyz_name: str) -> Atoms:
     img_name = os.path.splitext(xyz_name)[0]
     img.info["charge"] = g.CHARGE
     img.info["spin"] = g.MULT
+    
     # --- Apply Constraints ---
     if getattr(g, 'FIXED_ATOMS', []):
         img.set_constraint(FixAtoms(indices=g.FIXED_ATOMS))
@@ -510,7 +603,7 @@ def get_symmetry_info(atoms, tol=1e-3):
         mol.spin = g.MULT - 1
         mol.basis = {'default': [[0, (1.0, 1.0)]]} # Dummy basis just to allow build() to pass
         mol.symmetry = True
-        mol.verbose = 0       # Suppress PySCF output
+        mol.verbose = 0     # Suppress PySCF output
         mol.build()
         
         pg = mol.topgroup
@@ -728,6 +821,7 @@ def make_optpoints_traj(peak_files: List[str], out_traj: str = "optpoints/optpoi
 
     start_file = peak_files[0]
     end_file = peak_files[-1]
+    
     middle_file = getattr(g, 'HIGHEST_PEAK_FILE', None)
 
     branch_plan = [(start_file, 0)]
@@ -829,7 +923,7 @@ if __name__ == '__main__':
     parser.add_argument("-m", "--method", type=str, required=False, default="orbmol", help="calculation method of the PES")
     if g.INIT_PATH_SEARCH_ON:
         parser.add_argument("-r", "--reactant", type=str, required=True, help="inputfile for the reactant .xyz file")
-        parser.add_argument("-p", "--product", type=str, required=True, help="inputfile for the product .xyz file")
+        parser.add_argument("-p", "--product", type=str, required=False, help="inputfile for the product .xyz file")
     else:
         parser.add_argument("-i", "--input", type=str, required=True, default="input.traj", help="input .traj or .xyz file")
     parser.add_argument("-rs", "--result", type=str, required=False, default="result.csv", help="resulting dataframe .csv file")
@@ -847,9 +941,13 @@ if __name__ == '__main__':
             sys.exit()
         shutil.copy(args.reactant, args.directory)
         shutil.copy(args.reactant, args.directory+"/reactant.xyz")
-        shutil.copy(args.product, args.directory)
-        shutil.copy(args.product, args.directory+"/product.xyz")
-        log("I/O", f"Copied reactant and product to {args.directory}")
+        
+        if getattr(args, 'product', None):
+            shutil.copy(args.product, args.directory)
+            shutil.copy(args.product, args.directory+"/product.xyz")
+            log("I/O", f"Copied reactant and product to {args.directory}")
+        else:
+            log("I/O", f"Copied reactant to {args.directory}")
     else:
         if not os.path.exists(args.input):
             log("Fail", f"Canceled: cannot load {args.input}")
@@ -881,7 +979,7 @@ if __name__ == '__main__':
     # Main
     if g.INIT_PATH_SEARCH_ON:
         run_initial_path_search()
-        g.I_TRAJ = "DMF_final.traj" # ignores args.input
+        g.I_TRAJ = "init_path.traj" # ignores args.input, unified output
     elif not g.PRESERVE_CSV_ON:
         if g.INIT_RECALC_MODE_ON:
             #Ignore the file's energy, strictly recalculate
