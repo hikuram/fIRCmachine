@@ -17,7 +17,7 @@ from ase.optimize import LBFGS
 from ase.vibrations import Vibrations
 from ase.thermochemistry import IdealGasThermo
 from ase.constraints import FixAtoms, FixInternals
-from ase.neb import NEB
+from ase.mep import NEB
 
 # Project modules
 import default_config as g
