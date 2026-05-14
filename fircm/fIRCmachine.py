@@ -179,7 +179,7 @@ def process_local_maxima():
             g.ORIG_R_CSV = g.R_CSV
             vib_files, opt_indices = make_optpoints_traj(peak_files)
             optpoints_csv = "optpoints/result_optpoints.csv"
-            write_energies("optpoints/optpoints.traj", csv_name=optpoints_csv, previous_image=opt_indices)
+            write_energies("optpoints/optpoints.traj", csv_name=optpoints_csv, previous_image=opt_indices, energy_recalc=True)
             df_new = pd.read_csv(optpoints_csv)
             g.R_CSV = optpoints_csv
 
