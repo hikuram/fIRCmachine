@@ -5,10 +5,11 @@
 ## 1. Machine Learning Interatomic Potentials (MLIP)
 * **`orbmol` (Orbital Materials v3):**
   Utilizes the `orb_v3_conservative_omol` model from the `orb_models` package. It runs on the GPU (`cuda`) with `float64` precision, enabling fast and accurate PES exploration. Highly recommended for DMF and initial IRC calculations.
-* **`orbmol+alpb` (Delta ML Approach):**
+* **`orbmol+alpb` (MLIP + xTB solvation-delta correction):**
   An advanced hybrid method that calculates the gas-phase energy using an MLIP and adds the solvation energy difference (Delta) using a low-cost semi-empirical quantum chemistry method (xTB).
   * Implementation: Uses ASE's `LinearCombinationCalculator`.
   * $E_{total} = E_{MLIP(gas)} + (E_{GFN1-xTB(solv)} - E_{GFN1-xTB(gas)})$
+  * By default, `TBLITE_METHOD = "hybrid"` uses GFN1-xTB during DMF path optimization for robustness and lower cost, then restores the effective production Delta-ML backend to GFN2-xTB for subsequent single-point energy evaluation and downstream steps. Setting `TBLITE_METHOD` explicitly to `"GFN1-xTB"` or `"GFN2-xTB"` forces that method throughout the Delta-ML calculator.
   * Powered by the custom `DualTBLite` class (in `dual_tblite_delta.py`), it dramatically reduces SCF cycles by reusing the wavefunction (Result container) from the solvated calculation as the initial guess for the gas-phase calculation.
 
 ## 2. First-Principles (PySCF / gpu4pyscf)
