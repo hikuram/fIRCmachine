@@ -108,7 +108,7 @@ def process_local_maxima():
     irc_trajs_str = ""
     t_tsopt_irc_start = timepfc()
     for i, peak_file in enumerate(peak_files):
-        if len(peak_files) > 2:
+        if len(peak_files) >= 2:
             if i == 0 or i == len(peak_files) - 1:
                 continue
 
