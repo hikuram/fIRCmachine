@@ -2,15 +2,17 @@
 
 The workflow of `fIRCmachine` is not just a sequential execution of scripts; it is heavily designed around "robustness" against noise and numerical artifacts on the Potential Energy Surface (PES).
 
-## 1. Initial Path Search (FB-ENM & DMF)
-Given only the reactant and product structures, the toolkit generates a reliable initial path at a low computational cost.
+## 1. Initial Path Search (DMF, NEB, SCAN)
+Given the input structures, the toolkit generates a reliable initial path. The method is controlled by `INIT_PATH_METHOD`.
 
-* **FB-ENM (Force-Biased Elastic Network Model):**
-  Uses `interpolate_fbenm` to smoothly interpolate the geometric transition, generating an initial path (`DMF_init.traj`) that avoids atomic collisions.
-* **DirectMaxFlux (DMF):**
-  Optimizes the FB-ENM path using `pydmf`. Forces are evaluated for each image (default 40 nodes, `NMOVE: 40`) and optimized with a `tol="tight"` criterion.
+* **FB-ENM & DirectMaxFlux (DMF):**
+  Uses `interpolate_fbenm` for initial interpolation and `pydmf` for path optimization. It robustly handles large geometric changes without atomic collisions.
+* **Nudged Elastic Band (NEB):**
+  A standard ASE NEB implementation, enhanced to cleanly separate the final optimized path (`init_path.traj`) from the noisy optimization history (`NEB_history.traj`). It also fully respects `FIXED_ATOMS` constraints across all intermediate images.
+* **Relaxed PES Scan (SCAN):**
+  Performs constrained optimization along a specified internal coordinate (bond, angle, dihedral). If the geometry breaks due to excessive strain (e.g., forcing a bond too far), a `try...except` block catches the SCF/optimization failure, stops the scan early, and safely preserves the path generated up to that point.
 * **Peak Extraction (`extract_peaks_from_traj`):**
-  Scans the energy along the DMF path and automatically extracts local maxima as TS (Transition State) candidates.
+  Scans the energy along the generated path and automatically extracts local maxima as TS (Transition State) candidates.
 
 ## 2. TS Optimization & Adaptive IRC
 Strict TS optimization and IRC calculations are performed on the extracted peak structures using Sella.
