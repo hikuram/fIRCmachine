@@ -347,21 +347,35 @@ def generate_path_neb(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     images.append(product_atoms)
     
     neb = NEB(images, k=g.NEB_SPRING_CONSTANT, climb=g.NEB_CLIMB)
-    neb.interpolate('idpp')
+    try:
+        neb.interpolate('idpp')
+    except Exception as e:
+        log("Warn", f"IDPP interpolation failed ({e}). Falling back to linear interpolation.")
+        neb.interpolate('linear')
+    
+    # --- Apply Fixed Atoms Constraints ---
+    constraints = []
+    if getattr(g, 'FIXED_ATOMS', []):
+        constraints.append(FixAtoms(indices=g.FIXED_ATOMS))
+        log("Path", f"Applied FixAtoms constraint to NEB intermediate images: {g.FIXED_ATOMS}")
+    # -------------------------------------
     
     for i, img in enumerate(images[1:-1]):
         img.info["charge"] = g.CHARGE
         img.info["spin"] = g.MULT
+        if constraints:
+            img.set_constraint(constraints)
         img.calc = make_calculator(g.CALC_TYPE, img, f"NEB_img_{i+1}")
         
-    opt = LBFGS(neb, trajectory='init_path.traj', logfile='NEB_opt.log')
-    opt.run(fmax=g.OPT_FMAX)
+    opt = LBFGS(neb, trajectory='NEB_history.traj', logfile='NEB_opt.log')
+    opt.run(fmax=g.OPT_FMAX, steps=1000)
     
     write('init_path.traj', images)
     traj_to_xyz(images, 'init_path.xyz')
     write_energies('init_path.traj', g.R_CSV)
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/init_path.traj")
-    log("I/O", "Wrote init_path.traj and init_path.xyz")
+    g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/NEB_history.traj")
+    log("I/O", "Wrote init_path.traj (final path) and NEB_history.traj (optimization history)")
 
 
 # Run Relaxed PES Scan using ASE constraints (Elongation / Torsion)
@@ -384,6 +398,13 @@ def generate_path_scan(reactant_atoms: Atoms) -> None:
     end_val = g.SCAN_END_VAL
     steps = g.SCAN_STEPS
     
+    # --- Prepare Fixed Atoms Constraint ---
+    fixed_constraint = None
+    if getattr(g, 'FIXED_ATOMS', []):
+        fixed_constraint = FixAtoms(indices=g.FIXED_ATOMS)
+        log("Path", f"Applied FixAtoms constraint to SCAN: {g.FIXED_ATOMS}")
+    # --------------------------------------
+    
     for step in range(steps + 1):
         val = start_val + (end_val - start_val) * step / steps
         log("SCAN", f"Step {step}/{steps} - Target {g.SCAN_TYPE}: {val:.3f}")
@@ -398,22 +419,33 @@ def generate_path_scan(reactant_atoms: Atoms) -> None:
             current_atoms.set_dihedral(g.SCAN_INDICES[0], g.SCAN_INDICES[1], g.SCAN_INDICES[2], g.SCAN_INDICES[3], val)
             cons = FixInternals(dihedrals=[(val, g.SCAN_INDICES)])
             
-        current_atoms.set_constraint(cons)
+        all_constraints = [cons]
+        if fixed_constraint:
+            all_constraints.append(fixed_constraint)
+        current_atoms.set_constraint(all_constraints)
+        
         current_atoms.info["charge"] = g.CHARGE
         current_atoms.info["spin"] = g.MULT
         current_atoms.calc = make_calculator(g.CALC_TYPE, current_atoms, f"SCAN_opt_{step}")
         
-        opt = LBFGS(current_atoms, logfile=f"SCAN_opt_{step}.log")
-        opt.run(fmax=g.OPT_FMAX)
+        try:
+            opt = LBFGS(current_atoms, logfile=f"SCAN_opt_{step}.log")
+            opt.run(fmax=g.OPT_FMAX, steps=500)
+            images.append(current_atoms.copy())
+        except Exception as e:
+            log("Warn", f"SCAN optimization failed at step {step} (target: {val:.3f}). Error: {e}")
+            log("Warn", "Stopping SCAN early, but preserving successfully generated path.")
+            break
         
-        images.append(current_atoms.copy())
+    if not images:
+        log("Fail", "SCAN failed to generate any valid images.")
+        sys.exit("abort: SCAN generated empty path.")
         
     write('init_path.traj', images)
     traj_to_xyz(images, 'init_path.xyz')
     write_energies('init_path.traj', g.R_CSV)
     g.SUGGESTIONS.append(f"ase gui {g.CURRENT_DIR}/init_path.traj")
-    log("I/O", "Wrote init_path.traj and init_path.xyz")
-
+    log("I/O", f"Wrote init_path.traj and init_path.xyz (Total frames: {len(images)})")
 
 # Write text file
 def write_line(txtfile_name, txt):
