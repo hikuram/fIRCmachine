@@ -46,42 +46,57 @@ def run_initial_path_search():
     if getattr(g, 'INIT_PATH_METHOD', 'DMF') in ["DMF", "NEB"]:
         log("Path", "Reading product.xyz ...")
         product = read("product.xyz")
+
+    # --- HYBRID MODE INTERCEPTION (Start) ---
+    original_tblite_method = getattr(g, 'TBLITE_METHOD', 'GFN2-xTB')
+    if original_tblite_method == "hybrid":
+        g.TBLITE_METHOD = "GFN1-xTB"
+        log("Info", "Hybrid mode active: Temporarily downgrading TBLITE_METHOD to GFN1-xTB for initial path search (Opt & Path Gen).")
+    # ----------------------------------------
     
-    # == Refine input geometries ===================
-    t_opt_start = timepfc()
-    if g.REFINE_INPUT_ON:
-        log("Opt", "Refining input geometries ...")
-        if g.USE_SELLA_IN_OPT:
-            reactant = opt_sella_img("reactant.xyz")
-            if product is not None:
-                product = opt_sella_img("product.xyz")
-        else:
-            reactant = opt_img("reactant.xyz")
-            if product is not None:
-                product = opt_img("product.xyz")
-        t_opt = timepfc() - t_opt_start
-        log("Opt", f"-> Input geometries refined in {t_opt:.2f} s")
-        txt = f"* Optimize_Total        | {t_opt:>12.2f} s  *\n"
-        write_line(g.TIME_LOG_NAME, txt)
-    
-    # == Run Initial Path Generation ===================
-    t_path_start = timepfc()
-    method = getattr(g, 'INIT_PATH_METHOD', 'DMF')
-    log("Path", f"Generating initial path using {method} ...")
-    
-    if method == "DMF":
-        mepopt_dmf(reactant, product)
-    elif method == "NEB":
-        generate_path_neb(reactant, product)
-    elif method == "SCAN":
-        generate_path_scan(reactant)
-    else:
-        sys.exit(f"abort: Unknown INIT_PATH_METHOD: {method}")
+    try:
+        # == Refine input geometries ===================
+        t_opt_start = timepfc()
+        if g.REFINE_INPUT_ON:
+            log("Opt", "Refining input geometries ...")
+            if g.USE_SELLA_IN_OPT:
+                reactant = opt_sella_img("reactant.xyz")
+                if product is not None:
+                    product = opt_sella_img("product.xyz")
+            else:
+                reactant = opt_img("reactant.xyz")
+                if product is not None:
+                    product = opt_img("product.xyz")
+            t_opt = timepfc() - t_opt_start
+            log("Opt", f"-> Input geometries refined in {t_opt:.2f} s")
+            txt = f"* Optimize_Total        | {t_opt:>12.2f} s  *\n"
+            write_line(g.TIME_LOG_NAME, txt)
         
-    t_path = timepfc() - t_path_start
-    log("Path", f"-> {method} finished in {t_path:.2f} s")
-    txt = f"* Path_Gen_Total        | {t_path:>12.2f} s  *\n"
-    write_line(g.TIME_LOG_NAME, txt)
+        # == Run Initial Path Generation ===================
+        t_path_start = timepfc()
+        method = getattr(g, 'INIT_PATH_METHOD', 'DMF')
+        log("Path", f"Generating initial path using {method} ...")
+        
+        if method == "DMF":
+            mepopt_dmf(reactant, product)
+        elif method == "NEB":
+            generate_path_neb(reactant, product)
+        elif method == "SCAN":
+            generate_path_scan(reactant)
+        else:
+            sys.exit(f"abort: Unknown INIT_PATH_METHOD: {method}")
+            
+        t_path = timepfc() - t_path_start
+        log("Path", f"-> {method} finished in {t_path:.2f} s")
+        txt = f"* Path_Gen_Total        | {t_path:>12.2f} s  *\n"
+        write_line(g.TIME_LOG_NAME, txt)
+        
+    finally:
+        # --- HYBRID MODE INTERCEPTION (End) ---
+        if original_tblite_method == "hybrid":
+            g.TBLITE_METHOD = "hybrid"
+            log("Info", "Initial path search complete: Restored TBLITE_METHOD to hybrid (GFN2-xTB).")
+        # --------------------------------------
 
 # Repeat for each local maximum
 def process_local_maxima():
@@ -271,13 +286,6 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
     coefs = mxflx_fbenm.coefs.copy()
     np.save('DMF_init_coefs', coefs)
     
-    # --- HYBRID MODE INTERCEPTION (Start) ---
-    original_tblite_method = getattr(g, 'TBLITE_METHOD', 'GFN2-xTB')
-    if original_tblite_method == "hybrid":
-        g.TBLITE_METHOD = "GFN1-xTB"
-        log("Info", "Hybrid mode active: Temporarily downgrading TBLITE_METHOD to GFN1-xTB for DMF optimization.")
-    # ----------------------------------------
-    
     # Set up and solve Direct MaxFlux
     mxflx = DirectMaxFlux(ref_images, coefs=coefs, nmove=g.NMOVE, update_teval=g.UPDATE_TEVAL)
     
@@ -299,13 +307,7 @@ def mepopt_dmf(reactant_atoms: Atoms, product_atoms: Atoms) -> None:
         write("DMF_last_before_error.traj", mxflx.images)
         log("Fail", f"abort: DirectMaxFlux.solve failed: {e}")
         sys.exit(f"abort: DirectMaxFlux.solve failed: {e}")
-        
-    # --- HYBRID MODE INTERCEPTION (End) ---
-    if original_tblite_method == "hybrid":
-        g.TBLITE_METHOD = "hybrid"
-        log("Info", "DMF optimization complete: Restored TBLITE_METHOD to hybrid (GFN2-xTB).")
-    # --------------------------------------
-    
+
     # DMF_final.traj: Recompute SPC for mxflx.images (some frames lack energy)
     final_images = []
     for img in mxflx.images:
