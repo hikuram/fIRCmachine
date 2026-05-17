@@ -1,6 +1,5 @@
 from ase import Atoms
 from ase.io import read as read_ase
-import os
 from datetime import datetime
 import default_config as g
 
@@ -11,7 +10,7 @@ def log(tag: str, msg: str):
     """
     print(f"[{tag:<6}] {msg}")
     
-    log_file = os.path.join(getattr(g, 'CURRENT_DIR', '.'), "fircm.log")
+    log_file = "fircm.log"
     try:
         with open(log_file, "a", encoding="utf-8") as f:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

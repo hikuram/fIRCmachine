@@ -2,7 +2,8 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from ase.io import read, write
+from ase.io import write
+from utils import read
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Concatenate ASE trajectory files and exit')

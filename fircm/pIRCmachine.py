@@ -70,6 +70,17 @@ if __name__ == '__main__':
         log("Info", f"{g.R_CSV} will be overwritten")
     else:
         log("Info", f"{g.R_CSV} will be made")
+    if "alpb" in g.CALC_TYPE.lower() and getattr(g, 'TBLITE_METHOD', '') == "hybrid":
+        if not g.OPT_OPTPOINTS_AGAIN_ON:
+            log("Info", "Hybrid + ALPB mode detected: Forcing OPT_OPTPOINTS_AGAIN_ON=True to re-optimize geometries on the GFN2-xTB PES.")
+            g.OPT_OPTPOINTS_AGAIN_ON = True
+        
+    log("System", "--- Global Configuration Dump ---")
+    for key in dir(g):
+        if key.isupper() and not key.startswith("_"):
+            val = getattr(g, key)
+            log("Config", f"{key} = {val}")
+    log("System", "---------------------------------")
     
     # Main
     if g.INIT_PATH_SEARCH_ON:
